@@ -795,8 +795,8 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
 
   useEffect(() => {
     const handleClearAll = () => clearCurrentChat()
-    window.addEventListener('forger:chat-history-cleared', handleClearAll)
-    return () => window.removeEventListener('forger:chat-history-cleared', handleClearAll)
+    window.addEventListener('teaspoon:chat-history-cleared', handleClearAll)
+    return () => window.removeEventListener('teaspoon:chat-history-cleared', handleClearAll)
   }, [abortController, projectPath])
 
   const handleRejectOneCommand = (command: string) => {
@@ -838,7 +838,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
         if (target) {
           const isUrl = /^https?:\/\//i.test(target)
           if ((isUrl && !window.electronAPI.openExternal) || (!isUrl && !window.electronAPI.openPath)) {
-            reject(new Error(i18nService.t('Cannot open target - restart Forger to pick up the update')))
+            reject(new Error(i18nService.t('Cannot open target - restart Teaspoon IDE to pick up the update')))
             return
           }
           try {
@@ -937,8 +937,8 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
     }
     refreshLlm()
     // Settings can switch provider/model while the chat stays mounted
-    window.addEventListener('forger:llm-changed', refreshLlm)
-    return () => window.removeEventListener('forger:llm-changed', refreshLlm)
+    window.addEventListener('teaspoon:llm-changed', refreshLlm)
+    return () => window.removeEventListener('teaspoon:llm-changed', refreshLlm)
   }, [])
 
   // Organization session: poll the remaining budget once a minute and
@@ -951,11 +951,11 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
     }
     refreshUsage()
     const interval = setInterval(refreshUsage, 60000)
-    window.addEventListener('forger:managed-changed', refreshUsage)
+    window.addEventListener('teaspoon:managed-changed', refreshUsage)
     return () => {
       cancelled = true
       clearInterval(interval)
-      window.removeEventListener('forger:managed-changed', refreshUsage)
+      window.removeEventListener('teaspoon:managed-changed', refreshUsage)
     }
   }, [])
 

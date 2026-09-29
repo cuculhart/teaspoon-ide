@@ -60,14 +60,14 @@ function App() {
   // Managed mode: re-evaluate the lock when the session changes or expires
   useEffect(() => {
     const refresh = () => setManagedLocked(configService.isManagedLocked())
-    window.addEventListener('forger:managed-changed', refresh)
+    window.addEventListener('teaspoon:managed-changed', refresh)
     let timer: ReturnType<typeof setTimeout> | undefined
     const expiry = configService.getManagedSessionExpiry()
     if (configService.getManagedMode() && expiry) {
       timer = setTimeout(refresh, Math.max(0, expiry - Date.now()))
     }
     return () => {
-      window.removeEventListener('forger:managed-changed', refresh)
+      window.removeEventListener('teaspoon:managed-changed', refresh)
       if (timer) clearTimeout(timer)
     }
   }, [managedLocked])
@@ -88,7 +88,7 @@ function App() {
       if (!file || !window.electronAPI?.getPathForFile) return
       const p = window.electronAPI.getPathForFile(file)
       if (p) {
-        window.dispatchEvent(new CustomEvent('forger:open-project-path', { detail: p }))
+        window.dispatchEvent(new CustomEvent('teaspoon:open-project-path', { detail: p }))
       }
     }
     window.addEventListener('dragover', onDragOver)
@@ -104,8 +104,8 @@ function App() {
     const clear = () => {
       fileHistoryRef.current = []
     }
-    window.addEventListener('forger:clear-file-history', clear)
-    return () => window.removeEventListener('forger:clear-file-history', clear)
+    window.addEventListener('teaspoon:clear-file-history', clear)
+    return () => window.removeEventListener('teaspoon:clear-file-history', clear)
   }, [])
   const [sidebarWidth, setSidebarWidth] = useState(250)
   const [chatWidth, setChatWidth] = useState(400)
@@ -241,7 +241,7 @@ function App() {
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        window.dispatchEvent(new CustomEvent('forger:layout-changed'))
+        window.dispatchEvent(new CustomEvent('teaspoon:layout-changed'))
       })
     })
     return () => cancelAnimationFrame(frame)

@@ -1,8 +1,8 @@
 {
-  "name": "forger-ide",
-  "productName": "Forger",
-  "version": "0.5.0",
-  "description": "Forger - Standalone Electron-based AI coding assistant (File / Omni Chat / Repository / Generative Agent / Editor / Runtime)",
+  "name": "teaspoon-ide",
+  "productName": "Teaspoon",
+  "version": "0.6.0",
+  "description": "Teaspoon IDE - Standalone Electron-based AI coding assistant (a teaspoon of tokens)",
   "main": "electron/main.js",
   "config": {},
   "scripts": {
@@ -23,7 +23,7 @@
     "editor",
     "gemini"
   ],
-  "author": "Forger contributors",
+  "author": "Teaspoon IDE contributors",
   "license": "FSL-1.1-MIT",
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",

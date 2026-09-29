@@ -1,18 +1,16 @@
-# Forger
+# Teaspoon IDE
 
 [English](readme.md) | 日本語
 
 <p align="center">
-  <img src="assets/forger-banner.png" alt="Forger — Standalone, Privacy-First AI IDE">
+  <img src="assets/teaspoon-banner.png" alt="Teaspoon IDE — Standalone, Privacy-First AI IDE">
 </p>
 
 ファイルエクスプローラー、コードエディター、AIチャット、Git操作、ターミナルが一体となった、スタンドアロン型のElectron製AIコーディングアシスタントです。
 
-**Forger** の名前は以下の頭文字に由来します：
+**Teaspoon IDE** の名前は「小匙一杯（a teaspoon）のトークンで実用的な仕事をこなす」という設計目標に由来します。デフォルトで送信するコンテキストはファイルツリー（パス一覧）のみで、AI は READ_FILE/GREP を通じて必要な内容だけを取得し、メッセージあたりのトークンを抑えます。
 
-> **F**ile / **O**mni Chat / **R**epository / **G**enerative Agent / **E**ditor / **R**untime
-
-パッケージ名・リポジトリ名は `forger-ide`（既存プロジェクトとの競合回避のため）。呼称・表示名は **Forger** です。
+パッケージ名・リポジトリ名は `teaspoon-ide`。呼称・表示名は **Teaspoon IDE** です。（旧称: **Forger**）
 
 Author: Eiji Arai — Web Site: https://cuculhart.com
 
@@ -25,7 +23,7 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 - **Recent Projects**: よく開く順（オープン回数+最近順）で一覧表示し、ワンクリックでオープン
 - **セッション復元**: リロードや再起動後に、最後に開いていたプロジェクト・ファイル・チャット履歴を自動復元
 - **ファイル/フォルダ作成**: エクスプローラーの📄+/📁+ボタンまたはメニューからインライン作成
-- **ドラッグ&ドロップ**: exeやアプリウィンドウにフォルダをドロップするとプロジェクトとしてオープン（`Forger.exe <path>` でも可。二重起動時は既存インスタンスに引き渡し）
+- **ドラッグ&ドロップ**: exeやアプリウィンドウにフォルダをドロップするとプロジェクトとしてオープン（`Teaspoon.exe <path>` でも可。二重起動時は既存インスタンスに引き渡し）
 
 ### エディター
 
@@ -76,7 +74,7 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 - **フォント**: ファミリー・サイズをUI全体とMonacoエディターに反映
 - **LLMプロバイダー**: Gemini API（クラウド）/ Ollama（ローカル・オフライン）を設定画面で切替。モデル選択・LiteLLMプロキシにも対応
 - **UI言語**: Settings > Appearance > Language で切替。`lang/<code>.json` を追加すれば誰でも言語を追加可能
-- **About**: Help > About Forger
+- **About**: Help > About Teaspoon IDE
 - **ネイティブメニュー**: File / Edit / View / Window / Help
 
 ## アーキテクチャ
@@ -108,7 +106,7 @@ Electron アプリ
 APIキーを安全に管理するために、LiteLLMプロキシを使用することを推奨します：
 
 ```
-Forger → ダミーAPIキー → LiteLLM (VPS等) → 本物のAPIキー → Google AI Studio
+Teaspoon IDE → ダミーAPIキー → LiteLLM (VPS等) → 本物のAPIキー → Google AI Studio
 ```
 
 ### LiteLLMプロキシの設定
@@ -119,7 +117,7 @@ pip install litellm
 litellm --model gemini/gemini-3.8-flash --api_key YOUR_REAL_API_KEY
 ```
 
-2. **Forgerの設定**:
+2. **Teaspoon IDEの設定**:
    - 設定画面で「Use Proxy」を有効化
    - プロキシURLを入力（例: `http://your-vps:4000`）
    - ダミーAPIキーを入力（実際には使用されません）
@@ -147,7 +145,7 @@ litellm --model gemini/gemini-3.8-flash --api_key YOUR_REAL_API_KEY
 
 ### パッケージ化
 
-`npm run package` で `out/Forger-win32-x64/Forger.exe`（ポータブル実行ファイル）、`npm run make` でインストーラー（Squirrel）を生成します。
+`npm run package` で `out/Teaspoon-win32-x64/Teaspoon.exe`（ポータブル実行ファイル）、`npm run make` でインストーラー（Squirrel）を生成します。
 
 実施済みの対応：
 
@@ -155,7 +153,7 @@ litellm --model gemini/gemini-3.8-flash --api_key YOUR_REAL_API_KEY
 - CSP — 本番ビルドのみ厳格化（`vite.config.ts` の transformIndexHtml で差し替え。`'unsafe-inline'`スクリプト・CDN・`ws:`を除去）
 - Monaco Editor — `monaco-editor` をローカルバンドル化（`src/monacoSetup.ts` でworkerを同梱、CDN依存解消・オフライン動作）
 - node-pty — `asar.unpack` で `.node` バイナリをasar外に展開
-- メインプロセスの致命的エラーを `%TEMP%/forger-crash.log` に記録（パッケージ版はコンソールが無いため）
+- メインプロセスの致命的エラーを `%TEMP%/teaspoon-crash.log` に記録（パッケージ版はコンソールが無いため）
 
 ## ロードマップ
 
@@ -171,13 +169,13 @@ litellm --model gemini/gemini-3.8-flash --api_key YOUR_REAL_API_KEY
 - ✅ **Ctrl+Pクイックオープン** — ファイル名ファジー検索 + 最近開いたファイル一覧（File > Quick Open）
 - ✅ **プロジェクト内検索UI** — サイドバー「Search」タブで全文検索、結果クリックで該当行にジャンプ
 - ✅ **Markdownプレビュー / PDF・HTML出力** — .mdファイルのPreviewトグル（marked+DOMPurify、GFM対応）、File > Export Markdown to PDF（Electron printToPDF）/ HTML（スタイル埋め込みの単一ファイル）— Marketplace不要
-- ✅ **パッケージ化** — `npm run package` で `Forger.exe` ポータブルビルド（Monacoローカルバンドル・厳格CSP・node-pty unpack済み）。`npm run make` でSquirrelインストーラー
-- ✅ **フォルダD&D / CLIでプロジェクトを開く** — exeにフォルダをドロップ、ウィンドウへドロップ、`Forger.exe <path>` で即オープン（二重起動は既存インスタンスに引き渡し）
+- ✅ **パッケージ化** — `npm run package` で `Teaspoon.exe` ポータブルビルド（Monacoローカルバンドル・厳格CSP・node-pty unpack済み）。`npm run make` でSquirrelインストーラー
+- ✅ **フォルダD&D / CLIでプロジェクトを開く** — exeにフォルダをドロップ、ウィンドウへドロップ、`Teaspoon.exe <path>` で即オープン（二重起動は既存インスタンスに引き渡し）
 - ✅ **コンテキスト最適化** — 自動コンテキストはファイルツリー（パス一覧）のみ送信。中身はAIがREAD_FILE/GREPで必要分だけ取得 → メッセージ毎のトークンを大幅節約。Settings > AI Context でモード（tree/full）とツリー上限数を調整可能（手動ファイル選択モードは従来通り全内容を送信）
 
 - ✅ **多言語対応の基盤** — `lang/<code>.json` に英語原文→訳文の対応表を置くだけで言語追加可能（`_name`が言語表示名）。devはプロジェクト直下`lang/`、パッケージ版は`resources/lang/`（exe隣、ユーザー編集可）。Settings > Appearance > Languageで切替。UI側は `useT()` フック + `t('Explorer')` で参照
 - ✅ **Ollama対応** — Settings > LLM Provider で `Gemini / Ollama` 切替。OllamaはOpenAI互換API（`/v1/chat/completions`）をfetch直叩き（新規依存なし）。エンドポイント・モデルは設定可能、`/api/tags`からインストール済みモデルを自動検出。完全オフライン動作可
-- ✅ **About画面** — Help > About Forger（作者・Webサイト・ライセンス表示）
+- ✅ **About画面** — Help > About Teaspoon IDE（作者・Webサイト・ライセンス表示）
 
 ### 今後の計画（実装優先度順）
 
@@ -218,8 +216,8 @@ nvm install 22 && nvm use 22
 ### インストール
 
 ```bash
-git clone https://github.com/cuculhart/forger-ide.git
-cd forger-ide
+git clone https://github.com/cuculhart/teaspoon-ide.git
+cd teaspoon-ide
 
 # 依存関係のインストール
 npm install
@@ -294,8 +292,8 @@ npm run preview
 FSL-1.1-MIT（Functional Source License）— Copyright 2025 Eiji Arai（[LICENSE](LICENSE) を参照）
 
 - **ソース利用可（source-available）**: 閲覧・改変・フォーク・個人/社内利用は自由です
-- **禁止事項**: Forgerと競合する商用製品・サービスとして利用すること（例: リネームしたクローンの販売）
+- **禁止事項**: Teaspoon IDEと競合する商用製品・サービスとして利用すること（例: リネームしたクローンの販売）
 - **MITへの転換**: 各リリースから2年後に自動的にMITライセンスへ移行します
-- 「Forger」の名称はライセンスとは独立して管理されます（商標条項参照）
+- 「Teaspoon IDE」の名称はライセンスとは独立して管理されます（商標条項参照）
 
-Forgerはオープンソースコンポーネント（Monaco Editor、Electron、React、xterm.js等）を利用しています。各コンポーネントのライセンスと権利者は [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) を参照してください。パッケージ版ではこれらのファイルが `resources/` に同梱されます。
+Teaspoon IDEはオープンソースコンポーネント（Monaco Editor、Electron、React、xterm.js等）を利用しています。各コンポーネントのライセンスと権利者は [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) を参照してください。パッケージ版ではこれらのファイルが `resources/` に同梱されます。

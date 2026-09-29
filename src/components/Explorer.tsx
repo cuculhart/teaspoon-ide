@@ -38,12 +38,14 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
   const [newItemName, setNewItemName] = useState('')
 
   const restoreAttemptedRef = useRef(false)
+  const refreshBusyRef = useRef(false)
+  const refreshQueuedRef = useRef(false)
 
   useEffect(() => {
     const refreshRecents = () => setRecentProjects(configService.getRecentProjects())
     refreshRecents()
     // Settings > Clear History clears the list while Explorer stays mounted
-    window.addEventListener('forger:recents-cleared', refreshRecents)
+    window.addEventListener('teaspoon:recents-cleared', refreshRecents)
 
     // Restore the previously open project after a reload (e.g. Ctrl+R)
     if (!restoreAttemptedRef.current && !projectService.getCurrentProject()?.isOpen) {
@@ -53,7 +55,7 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
         openProjectByPath(lastPath, false)
       }
     }
-    return () => window.removeEventListener('forger:recents-cleared', refreshRecents)
+    return () => window.removeEventListener('teaspoon:recents-cleared', refreshRecents)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -114,17 +116,38 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
     console.log('Project files loaded:', fileItems.length)
   }
 
+  // Reload the tree, coalescing bursts of change events (the fs watcher,
+  // IDE-internal file-created events, and the refresh button can all fire
+  // in rapid succession)
+  const refreshProjectFiles = async () => {
+    const project = projectService.getCurrentProject()
+    if (!project?.isOpen) return
+    const rootPath = project.rootPath
+    if (refreshBusyRef.current) {
+      refreshQueuedRef.current = true
+      return
+    }
+    refreshBusyRef.current = true
+    try {
+      do {
+        refreshQueuedRef.current = false
+        await loadProjectFiles(rootPath)
+      } while (
+        refreshQueuedRef.current &&
+        projectService.getCurrentProject()?.rootPath === rootPath
+      )
+    } finally {
+      refreshBusyRef.current = false
+    }
+  }
+
   useEffect(() => {
     // Listen for file creation events to refresh explorer
     const handleFileCreated = (event: CustomEvent) => {
       const { filePath } = event.detail
       console.log('File created event received:', filePath)
 
-      // Refresh the project files if we have a project open
-      const project = projectService.getCurrentProject()
-      if (project && project.isOpen) {
-        loadProjectFiles(project.rootPath)
-      }
+      refreshProjectFiles()
     }
 
     window.addEventListener('file-created', handleFileCreated as EventListener)
@@ -132,6 +155,18 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
     return () => {
       window.removeEventListener('file-created', handleFileCreated as EventListener)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Sync the tree with changes made outside the IDE (external editors,
+  // Windows Explorer, terminal, git checkout, ...)
+  useEffect(() => {
+    const off = window.electronAPI?.onProjectFsChanged?.(() => {
+      refreshProjectFiles()
+      // Reuse the signal to refresh other panels (e.g. Git status)
+      window.dispatchEvent(new CustomEvent('teaspoon:project-fs-changed'))
+    })
+    return () => off?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -193,6 +228,8 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
       console.log('Project opened:', project.name)
       // Load the project files first
       await loadProjectFiles(project.rootPath)
+      // Keep the tree in sync with external file system changes
+      window.electronAPI?.watchProject?.(project.rootPath)
       // Then build automatic context
       await buildAutomaticContext()
       // Restore the file that was open before a reload
@@ -397,10 +434,10 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
     const offIpc = window.electronAPI?.onOpenProjectPath?.(openPath)
     window.electronAPI?.takePendingFolder?.().then(openPath)
     const onWindowDrop = (e: Event) => openPath((e as CustomEvent).detail)
-    window.addEventListener('forger:open-project-path', onWindowDrop)
+    window.addEventListener('teaspoon:open-project-path', onWindowDrop)
     return () => {
       offIpc?.()
-      window.removeEventListener('forger:open-project-path', onWindowDrop)
+      window.removeEventListener('teaspoon:open-project-path', onWindowDrop)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -410,8 +447,8 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
     const refresh = () => {
       if (useAutoContext) buildAutomaticContext()
     }
-    window.addEventListener('forger:context-changed', refresh)
-    return () => window.removeEventListener('forger:context-changed', refresh)
+    window.addEventListener('teaspoon:context-changed', refresh)
+    return () => window.removeEventListener('teaspoon:context-changed', refresh)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useAutoContext])
 
@@ -426,6 +463,7 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
   }
 
   const handleCloseProject = () => {
+    window.electronAPI?.unwatchProject?.()
     projectService.closeProject()
     contextService.clearContext()
     // Explicit close - do not restore the project on next reload
@@ -569,6 +607,13 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
                   title={t('New Folder')}
                 >
                   📁+
+                </button>
+                <button
+                  className="new-item-button"
+                  onClick={() => refreshProjectFiles()}
+                  title={t('Refresh Explorer')}
+                >
+                  ⟳
                 </button>
                 <button
                   className="new-item-button"

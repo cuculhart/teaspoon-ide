@@ -37,7 +37,7 @@ loader.config({ monaco })
 
 // Quiet Light editor theme - matches the muted warm-paper UI palette in
 // index.css ([data-theme='quiet'])
-monaco.editor.defineTheme('forger-quiet', {
+monaco.editor.defineTheme('teaspoon-quiet', {
   base: 'vs',
   inherit: true,
   rules: [],

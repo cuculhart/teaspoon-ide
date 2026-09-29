@@ -88,7 +88,7 @@ const FileEditApproval: React.FC<FileEditApprovalProps> = ({ edits, onApprove, o
                     language={getLanguage(edit.filePath)}
                     original={edit.oldContent}
                     modified={edit.newContent}
-                    theme={monacoTheme === 'dark' ? 'vs-dark' : monacoTheme === 'quiet' ? 'forger-quiet' : 'vs'}
+                    theme={monacoTheme === 'dark' ? 'vs-dark' : monacoTheme === 'quiet' ? 'teaspoon-quiet' : 'vs'}
                     options={{
                       renderSideBySide: false,
                       readOnly: true,

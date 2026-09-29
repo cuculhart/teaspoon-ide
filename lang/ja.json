@@ -20,6 +20,7 @@
   "New Folder": "新規フォルダ",
   "Open Project": "プロジェクトを開く",
   "Open Project Folder": "プロジェクトフォルダを開く",
+  "Refresh Explorer": "エクスプローラーを更新",
   "New Project": "新規プロジェクト",
   "Close Project": "プロジェクトを閉じる",
   "Using automatic context": "自動コンテキストを使用中",
@@ -87,7 +88,7 @@
   "exit code": "終了コード",
   "Ran": "実行",
   "opened": "起動",
-  "Cannot open target - restart Forger to pick up the update": "開けません - Forgerを再起動して更新を適用してください",
+  "Cannot open target - restart Teaspoon IDE to pick up the update": "開けません - Teaspoon IDEを再起動して更新を適用してください",
   "Error running": "実行エラー",
 
   "No file selected": "ファイルが選択されていません",
@@ -291,7 +292,7 @@
   "Failed to get response": "応答の取得に失敗しました",
   "No project is open": "プロジェクトが開かれていません",
 
-  "About Forger": "Forgerについて",
+  "About Teaspoon IDE": "Teaspoon IDEについて",
   "Author": "作者",
   "Web Site": "Webサイト",
   "Standalone, Privacy-First AI IDE": "スタンドアロン・プライバシーファーストのAI IDE",

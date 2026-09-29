@@ -34,7 +34,7 @@ const ManagedGate: React.FC = () => {
   return (
     <div className="managed-gate">
       <div className="managed-gate-card">
-        <h1 className="managed-gate-title">Forger</h1>
+        <h1 className="managed-gate-title">Teaspoon IDE</h1>
         <p className="managed-gate-subtitle">{t('Sign in to your organization')}</p>
 
         <form onSubmit={handleSubmit}>

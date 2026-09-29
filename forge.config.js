@@ -7,7 +7,7 @@ module.exports = {
       unpack: '**/node_modules/node-pty/**',
     },
     // The README/social-preview banner is repo-only; keep it out of the package
-    ignore: [/forger-banner\.png$/],
+    ignore: [/teaspoon-banner\.png$/],
     // User-editable language files ship next to the app under resources/lang;
     // license texts ship alongside so bundled components' copyrights are preserved
     extraResource: ['lang', 'LICENSE', 'THIRD_PARTY_LICENSES.md'],
@@ -24,7 +24,7 @@ module.exports = {
         // Installer exe icon; iconUrl is shown in Add/Remove Programs and must
         // be a public https URL to an .ico (the committed file on GitHub)
         setupIcon: 'assets/icon.ico',
-        iconUrl: 'https://raw.githubusercontent.com/cuculhart/forger-ide/main/assets/icon.ico',
+        iconUrl: 'https://raw.githubusercontent.com/cuculhart/teaspoon-ide/main/assets/icon.ico',
       },
     },
     {
@@ -35,11 +35,11 @@ module.exports = {
       name: '@electron-forge/maker-deb',
       config: {
         options: {
-          // Packaged binary is named after productName ("Forger"), not the
+          // Packaged binary is named after productName ("Teaspoon"), not the
           // npm package name that maker-deb looks for by default
-          bin: 'Forger',
+          bin: 'Teaspoon',
           icon: 'assets/icon.png',
-          homepage: 'https://github.com/cuculhart/forger-ide',
+          homepage: 'https://github.com/cuculhart/teaspoon-ide',
           section: 'devel',
           genericName: 'AI Coding Assistant',
           categories: ['Development', 'IDE'],

@@ -10,6 +10,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   searchFiles: (rootPath, pattern) => ipcRenderer.invoke('search-files', rootPath, pattern),
   findFiles: (rootPath, pattern, maxResults) => ipcRenderer.invoke('find-files', rootPath, pattern, maxResults),
+  watchProject: (rootPath) => ipcRenderer.invoke('watch-project', rootPath),
+  unwatchProject: () => ipcRenderer.invoke('unwatch-project'),
+  onProjectFsChanged: (callback) => {
+    const listener = (event, payload) => callback(payload)
+    ipcRenderer.on('project-fs-changed', listener)
+    return () => ipcRenderer.removeListener('project-fs-changed', listener)
+  },
   
   // Git operations
   gitStatus: (repoPath) => ipcRenderer.invoke('git-status', repoPath),
@@ -62,7 +69,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Open a project from a folder path (CLI arg / folder dropped on exe)
-  takePendingFolder: () => ipcRenderer.invoke('forger:take-pending-folder'),
+  takePendingFolder: () => ipcRenderer.invoke('teaspoon:take-pending-folder'),
   onOpenProjectPath: (callback) => {
     const listener = (event, p) => callback(p)
     ipcRenderer.on('open-project-path', listener)

@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-Forger itself is distributed under the Functional Source License
+Teaspoon IDE itself is distributed under the Functional Source License
 (FSL-1.1-MIT) — see the `LICENSE` file. It is built on open-source
 software. The licenses of the bundled
 components are listed below. Full license texts are included in each
@@ -32,7 +32,7 @@ time only and are not distributed with the application.
 
 - MIT and BSD-2-Clause licenses require retaining the copyright notice and
   license text; they impose no other obligations on distribution.
-- DOMPurify is dual-licensed (Apache-2.0 or MPL-2.0); Forger uses it under
+- DOMPurify is dual-licensed (Apache-2.0 or MPL-2.0); Teaspoon IDE uses it under
   Apache-2.0.
 - The full license text of each package can also be found on
   https://www.npmjs.com/ or in the package repository.

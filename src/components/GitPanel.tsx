@@ -110,11 +110,16 @@ const GitPanel: React.FC<GitPanelProps> = ({ onOpenDiff }) => {
     refresh()
   }, [refresh])
 
-  // Refresh after AI writes create/update files
+  // Refresh after AI writes create/update files, and when the fs watcher
+  // reports external changes (Explorer re-dispatches them as this event)
   useEffect(() => {
     const handler = () => refresh()
     window.addEventListener('file-created', handler)
-    return () => window.removeEventListener('file-created', handler)
+    window.addEventListener('teaspoon:project-fs-changed', handler)
+    return () => {
+      window.removeEventListener('file-created', handler)
+      window.removeEventListener('teaspoon:project-fs-changed', handler)
+    }
   }, [refresh])
 
   const runGitAction = async (action: () => Promise<{ success: boolean; error?: string }>, okMessage: string) => {

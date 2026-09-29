@@ -3,13 +3,13 @@
 
 export const APP_CONTEXT_PROMPT = `
 
-APP CONTEXT: You are running inside "Forger", a standalone open-source Electron AI editor (NOT VS Code).
-Forger's actual implementation:
+APP CONTEXT: You are running inside "Teaspoon IDE", a standalone open-source Electron AI editor (NOT VS Code).
+Teaspoon IDE's actual implementation:
 - Editor: Monaco Editor (the same core editor as VS Code). Language/syntax highlighting is decided purely by file extension. Monaco's built-in TS worker only shows basic syntax errors (e.g. unterminated strings) - cross-file module resolution and type checking are disabled. There is NO language server, no IntelliSense, no extensions, no command palette.
 - Sidebar tabs: Explorer, Git (status/diff/commit/push/pull), Search (project-wide text search).
 - Terminal panel: a real PTY terminal (interactive CLI programs work).
 - You have file commands (WRITE_FILE, EDIT_FILE, READ_FILE, LIST_FILES, GREP, FIND_FILES) and RUN_COMMAND (user-approved shell commands).
-When the user asks about this app's behavior or why something looks different, reason about Forger's actual implementation above. Do NOT give VS Code-specific instructions (command palette, "restart TS server", installing extensions, VS Code settings UI) - none of those exist here.`
+When the user asks about this app's behavior or why something looks different, reason about Teaspoon IDE's actual implementation above. Do NOT give VS Code-specific instructions (command palette, "restart TS server", installing extensions, VS Code settings UI) - none of those exist here.`
 
 export const AGENT_INSTRUCTIONS = `
 
@@ -75,10 +75,10 @@ export const AGENT_SYSTEM_PROMPT = APP_CONTEXT_PROMPT + AGENT_INSTRUCTIONS
 
 // Compact variant for small local models (<3B params): at that size a long
 // prompt dilutes instruction-following, so the app-context description (only
-// relevant when the user asks about Forger itself) is dropped and just the
+// relevant when the user asks about Teaspoon IDE itself) is dropped and just the
 // command protocol remains.
 export const AGENT_SYSTEM_PROMPT_COMPACT =
-  'You are a coding assistant inside "Forger", a standalone Electron editor.' +
+  'You are a coding assistant inside "Teaspoon IDE", a standalone Electron editor.' +
   AGENT_INSTRUCTIONS
 
 // No project is open: file/shell commands cannot resolve paths, so tell the
@@ -88,7 +88,7 @@ export const NO_PROJECT_INSTRUCTIONS = `
 NOTE: No project is currently open. File-operation and shell commands (WRITE_FILE, EDIT_FILE, READ_FILE, LIST_FILES, GREP, FIND_FILES, RUN_COMMAND) would all fail - do not emit them. If the request needs files, briefly ask the user to open or create a project first using the "Open Project" or "New Project" button in the Explorer sidebar. Do not describe menus or dialogs that may not exist, and keep the answer short.`
 
 export const NO_PROJECT_SYSTEM_PROMPT =
-  'You are a coding assistant inside "Forger", a standalone Electron editor.' +
+  'You are a coding assistant inside "Teaspoon IDE", a standalone Electron editor.' +
   NO_PROJECT_INSTRUCTIONS
 
 // Host OS, so the model doesn't guess the platform wrong (e.g. emit

@@ -1,18 +1,16 @@
-# Forger
+# Teaspoon IDE
 
 English | [日本語](README.ja.md)
 
 <p align="center">
-  <img src="assets/forger-banner.png" alt="Forger — Standalone, Privacy-First AI IDE">
+  <img src="assets/teaspoon-banner.png" alt="Teaspoon IDE — Standalone, Privacy-First AI IDE">
 </p>
 
 A standalone Electron-based AI coding assistant that combines a file explorer, code editor, AI chat, Git operations, and a terminal in one app.
 
-The name **Forger** comes from:
+The name **Teaspoon IDE** reflects the design goal: getting real work done on a teaspoon of tokens. The default context is just the file tree (path list), and the AI fetches file contents on demand via READ_FILE/GREP — keeping each message small.
 
-> **F**ile / **O**mni Chat / **R**epository / **G**enerative Agent / **E**ditor / **R**untime
-
-The package and repository name is `forger-ide` (to avoid conflicts with existing projects). The product/display name is **Forger**.
+The package and repository name is `teaspoon-ide`. The product/display name is **Teaspoon IDE**. (Formerly known as **Forger**.)
 
 <video src="https://github.com/user-attachments/assets/867c8bcc-93aa-4ee4-90ef-efde5ed735e1" controls width="100%"></video>
 
@@ -27,7 +25,7 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 - **Recent Projects**: Lists frequently/recently opened projects for one-click reopen
 - **Session Restore**: Automatically restores the last project, open file, and chat history after reload or restart
 - **Create Files/Folders**: Inline creation via the 📄+/📁+ buttons in the explorer or the File menu
-- **Drag & Drop**: Drop a folder onto the exe or the app window to open it as a project (`Forger.exe <path>` also works; a second launch hands off to the running instance)
+- **Drag & Drop**: Drop a folder onto the exe or the app window to open it as a project (`Teaspoon.exe <path>` also works; a second launch hands off to the running instance)
 
 ### Editor
 
@@ -77,7 +75,7 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 - **Font**: Family and size applied across the UI and Monaco
 - **LLM Provider**: Switch between Gemini API (cloud) and Ollama (local, offline) in Settings. Model selection and LiteLLM proxy supported
 - **UI Language**: Switch in Settings > Appearance > Language. Add `lang/<code>.json` to contribute a language — keys are the English source strings
-- **About**: Help > About Forger
+- **About**: Help > About Teaspoon IDE
 - **Native Menus**: File / Edit / View / Window / Help
 
 ## Architecture
@@ -109,7 +107,7 @@ Electron App
 Using a LiteLLM proxy is recommended for safe API-key management:
 
 ```
-Forger → dummy API key → LiteLLM (e.g. VPS) → real API key → Google AI Studio
+Teaspoon IDE → dummy API key → LiteLLM (e.g. VPS) → real API key → Google AI Studio
 ```
 
 ### Setting up the LiteLLM proxy
@@ -120,7 +118,7 @@ pip install litellm
 litellm --model gemini/gemini-3.8-flash --api_key YOUR_REAL_API_KEY
 ```
 
-2. **Configure Forger**:
+2. **Configure Teaspoon IDE**:
    - Enable "Use Proxy" in Settings
    - Enter the proxy URL (e.g. `http://your-vps:4000`)
    - Enter a dummy API key (it is not actually used)
@@ -150,7 +148,7 @@ Currently "1 project : 1 chat" — conversations are stored per project in local
 
 ### Packaging
 
-`npm run package` produces `out/Forger-win32-x64/Forger.exe` (portable); `npm run make` produces a Squirrel installer.
+`npm run package` produces `out/Teaspoon-win32-x64/Teaspoon.exe` (portable); `npm run make` produces a Squirrel installer.
 
 Implemented packaging work:
 
@@ -158,7 +156,7 @@ Implemented packaging work:
 - CSP — strict policy for production builds only (swapped in via `transformIndexHtml` in `vite.config.ts`; removes `'unsafe-inline'` scripts, CDN, `ws:`)
 - Monaco Editor — locally bundled via `src/monacoSetup.ts` (workers included; no CDN, works offline)
 - node-pty — `.node` binaries unpacked from the asar via `asar.unpack`
-- Fatal main-process errors are logged to `%TEMP%/forger-crash.log` (packaged builds have no console)
+- Fatal main-process errors are logged to `%TEMP%/teaspoon-crash.log` (packaged builds have no console)
 
 ## Roadmap
 
@@ -174,12 +172,12 @@ Implemented packaging work:
 - ✅ **Ctrl+P quick open** — Fuzzy file search + recent files
 - ✅ **In-project search UI** — Full-text search from the sidebar, click to jump
 - ✅ **Markdown preview / PDF & HTML export** — No Marketplace or external tools needed
-- ✅ **Packaging** — `npm run package` for a portable `Forger.exe`; `npm run make` for a Squirrel installer
-- ✅ **Folder D&D / CLI open** — Drop a folder on the exe or window, or `Forger.exe <path>`
+- ✅ **Packaging** — `npm run package` for a portable `Teaspoon.exe`; `npm run make` for a Squirrel installer
+- ✅ **Folder D&D / CLI open** — Drop a folder on the exe or window, or `Teaspoon.exe <path>`
 - ✅ **Context optimization** — File-tree-only automatic context; contents fetched on demand via tools. Configurable in Settings > AI Context
 - ✅ **Localization framework** — Drop a `lang/<code>.json` mapping English source → translation. Dev: `<projectRoot>/lang/`; packaged: `resources/lang/` (user-editable, next to the exe). UI uses the `useT()` hook / `t('...')`
 - ✅ **Ollama support** — Settings > LLM Provider switches Gemini / Ollama. Ollama uses its OpenAI-compatible API (`/v1/chat/completions`) via plain fetch (no new dependencies); installed models auto-detected via `/api/tags`. Fully offline capable
-- ✅ **About screen** — Help > About Forger (author, web site, license)
+- ✅ **About screen** — Help > About Teaspoon IDE (author, web site, license)
 
 ### Future Plans (priority order)
 
@@ -220,8 +218,8 @@ nvm install 22 && nvm use 22
 ### Install
 
 ```bash
-git clone https://github.com/cuculhart/forger-ide.git
-cd forger-ide
+git clone https://github.com/cuculhart/teaspoon-ide.git
+cd teaspoon-ide
 
 # Install dependencies
 npm install
@@ -298,6 +296,6 @@ FSL-1.1-MIT (Functional Source License) — Copyright 2025 Eiji Arai (see [LICEN
 - **Source-available**: Free to view, modify, fork, and use personally or internally
 - **Restriction**: No Competing Use — you may not offer the software as a competing commercial product or service (e.g. selling a renamed clone)
 - **Converts to MIT**: Each release automatically becomes MIT-licensed 2 years after publication
-- The "Forger" name is governed separately (see the Trademark clause)
+- The "Teaspoon IDE" name is governed separately (see the Trademark clause)
 
-Forger is built on open-source components (Monaco Editor, Electron, React, xterm.js, etc.). See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for each component's license and copyright holder. Packaged builds ship these files under `resources/`.
+Teaspoon IDE is built on open-source components (Monaco Editor, Electron, React, xterm.js, etc.). See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for each component's license and copyright holder. Packaged builds ship these files under `resources/`.

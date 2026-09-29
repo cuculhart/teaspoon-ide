@@ -82,8 +82,8 @@ const CodeEditor: React.FC<EditorProps> = ({ file, content, onChange, diff, onCl
 
   useEffect(() => {
     const relayout = () => editorRef.current?.layout()
-    window.addEventListener('forger:layout-changed', relayout)
-    return () => window.removeEventListener('forger:layout-changed', relayout)
+    window.addEventListener('teaspoon:layout-changed', relayout)
+    return () => window.removeEventListener('teaspoon:layout-changed', relayout)
   }, [])
 
   useEffect(() => {
@@ -102,7 +102,7 @@ const CodeEditor: React.FC<EditorProps> = ({ file, content, onChange, diff, onCl
     }
   }, [])
 
-  const monacoThemeName = monacoTheme === 'dark' ? 'vs-dark' : monacoTheme === 'quiet' ? 'forger-quiet' : 'vs'
+  const monacoThemeName = monacoTheme === 'dark' ? 'vs-dark' : monacoTheme === 'quiet' ? 'teaspoon-quiet' : 'vs'
   const editorOptions = {
     minimap: { enabled: true },
     fontSize,

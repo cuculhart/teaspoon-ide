@@ -4,7 +4,7 @@ const { setupIpcHandlers } = require('./ipcHandlers')
 
 let mainWindow = null
 
-// Folder path passed via CLI arg (e.g. dropping a folder on Forger.exe).
+// Folder path passed via CLI arg (e.g. dropping a folder on Teaspoon.exe).
 // Packaged: argv[1..] are user args; dev: argv[0]=electron, argv[1]=app dir.
 function extractArgFolder(argv) {
   const { app } = require('electron')
@@ -154,7 +154,7 @@ function buildMenu() {
       label: 'Help',
       submenu: [
         {
-          label: 'About Forger',
+          label: 'About Teaspoon IDE',
           click: () => sendMenuAction('about'),
         },
       ],
@@ -168,7 +168,7 @@ async function createWindow() {
   const { BrowserWindow } = require('electron')
 
   mainWindow = new BrowserWindow({
-    title: 'Forger',
+    title: 'Teaspoon IDE',
     width: 1400,
     height: 900,
     // Windows uses the exe icon; this matters on Linux
@@ -237,14 +237,14 @@ function reportFatalError(err) {
     const fs = require('fs')
     const os = require('os')
     fs.appendFileSync(
-      path.join(os.tmpdir(), 'forger-crash.log'),
+      path.join(os.tmpdir(), 'teaspoon-crash.log'),
       `${new Date().toISOString()}\n${message}\n\n`,
     )
   } catch (e) {
     // ignore logging failure
   }
   try {
-    require('electron').dialog.showErrorBox('Forger failed to start', message)
+    require('electron').dialog.showErrorBox('Teaspoon IDE failed to start', message)
   } catch (e) {
     // ignore dialog failure
   }
@@ -274,7 +274,7 @@ app.whenReady().then(async () => {
   const { ipcMain } = require('electron')
   // Renderer pulls the pending CLI folder arg on mount (did-finish-load
   // can fire before React listeners are registered)
-  ipcMain.handle('forger:take-pending-folder', () => {
+  ipcMain.handle('teaspoon:take-pending-folder', () => {
     const p = pendingFolderArg
     pendingFolderArg = null
     return p

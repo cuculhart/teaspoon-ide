@@ -4,7 +4,7 @@ import { configService } from './configService'
 // Simple i18n: language files live in <resources>/lang (packaged) or
 // <projectRoot>/lang (dev) as <code>.json mapping English source -> localized.
 // English is the source language, so 'en' needs no file.
-const EVENT = 'forger:language-changed'
+const EVENT = 'teaspoon:language-changed'
 
 class I18nService {
   private dict: Record<string, string> = {}

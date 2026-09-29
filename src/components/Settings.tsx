@@ -136,7 +136,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
     }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-    window.dispatchEvent(new Event('forger:llm-changed'))
+    window.dispatchEvent(new Event('teaspoon:llm-changed'))
     onApiKeySaved?.()
   }
 
@@ -145,7 +145,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
     configService.clear()
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-    window.dispatchEvent(new Event('forger:llm-changed'))
+    window.dispatchEvent(new Event('teaspoon:llm-changed'))
     onApiKeySaved?.()
   }
 
@@ -179,7 +179,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const handleContextModeChange = (value: ContextMode) => {
     setContextMode(value)
     configService.setContextMode(value)
-    window.dispatchEvent(new Event('forger:context-changed'))
+    window.dispatchEvent(new Event('teaspoon:context-changed'))
   }
 
   const handleContextMaxFilesChange = (value: string) => {
@@ -187,7 +187,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
     const n = parseInt(value, 10)
     if (Number.isFinite(n) && n > 0) {
       configService.setContextMaxFiles(n)
-      window.dispatchEvent(new Event('forger:context-changed'))
+      window.dispatchEvent(new Event('teaspoon:context-changed'))
     }
   }
 
@@ -200,7 +200,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   }
 
   const notifyLlmChanged = () => {
-    window.dispatchEvent(new Event('forger:llm-changed'))
+    window.dispatchEvent(new Event('teaspoon:llm-changed'))
   }
 
   const handleProviderChange = (value: LlmProvider) => {
@@ -229,8 +229,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   // Project files, chats, and settings are untouched.
   const handleClearHistory = () => {
     configService.clearRecentProjects()
-    window.dispatchEvent(new Event('forger:clear-file-history'))
-    window.dispatchEvent(new Event('forger:recents-cleared'))
+    window.dispatchEvent(new Event('teaspoon:clear-file-history'))
+    window.dispatchEvent(new Event('teaspoon:recents-cleared'))
     setHistoryCleared(true)
     setTimeout(() => setHistoryCleared(false), 2000)
   }
@@ -245,7 +245,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const handleManagedModeChange = (on: boolean) => {
     setManagedMode(on)
     configService.setManagedMode(on)
-    window.dispatchEvent(new Event('forger:managed-changed'))
+    window.dispatchEvent(new Event('teaspoon:managed-changed'))
   }
 
   const handleManagedSignOut = () => {
@@ -263,7 +263,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
 
   const handleClearChatHistory = () => {
     chatHistoryService.clearAll()
-    window.dispatchEvent(new Event('forger:chat-history-cleared'))
+    window.dispatchEvent(new Event('teaspoon:chat-history-cleared'))
     setConfirmClearChatHistory(false)
     setChatHistoryCleared(true)
     setTimeout(() => setChatHistoryCleared(false), 2000)

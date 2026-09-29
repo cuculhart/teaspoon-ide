@@ -18,13 +18,13 @@ const About: React.FC<AboutProps> = ({ onClose }) => {
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings-modal about-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
-          <h2>{t('About Forger')}</h2>
+          <h2>{t('About Teaspoon IDE')}</h2>
           <button className="close-button" onClick={onClose}>×</button>
         </div>
         <div className="settings-content about-content">
-          <img src={iconUrl} className="about-icon" alt="Forger" />
-          <h3 className="about-app-name">Forger</h3>
-          <p className="about-version">Version 0.5.0</p>
+          <img src={iconUrl} className="about-icon" alt="Teaspoon IDE" />
+          <h3 className="about-app-name">Teaspoon IDE</h3>
+          <p className="about-version">Version 0.6.0</p>
           <p className="about-tagline">
             {t('Standalone, Privacy-First AI IDE')}
           </p>

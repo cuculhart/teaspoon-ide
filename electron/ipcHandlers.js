@@ -1,4 +1,5 @@
 const fs = require('fs/promises')
+const { watch: fsWatch } = require('fs')
 const path = require('path')
 const simpleGit = require('simple-git')
 const { spawn } = require('child_process')
@@ -8,6 +9,12 @@ const { ipcMain, dialog, nativeTheme, shell, BrowserWindow, app } = require('ele
 // Running terminal processes, keyed by a small app-level id
 const runningProcesses = new Map()
 let nextProcessId = 1
+
+// Project folder watchers, keyed by webContents id
+const projectWatchers = new Map()
+const watcherHookedSenders = new Set()
+const WATCH_DEBOUNCE_MS = 300
+const MAX_WATCH_DIRS = 2000
 
 function setupIpcHandlers() {
   // File system operations
@@ -178,6 +185,111 @@ function setupIpcHandlers() {
     } catch (error) {
       return { success: false, error: error.message }
     }
+  })
+
+  // Watch the project folder so the Explorer stays in sync with changes
+  // made outside the app (external editors, Windows Explorer, terminal,
+  // git checkout, ...). fs.watch with recursive:true works on Windows
+  // and macOS; elsewhere each directory is watched individually.
+  function stopProjectWatch(webContentsId) {
+    const state = projectWatchers.get(webContentsId)
+    if (!state) return
+    projectWatchers.delete(webContentsId)
+    if (state.timer) clearTimeout(state.timer)
+    for (const w of state.watchers.values()) {
+      try { w.close() } catch { /* already closed */ }
+    }
+  }
+
+  ipcMain.handle('watch-project', async (event, rootPath) => {
+    const sender = event.sender
+    stopProjectWatch(sender.id)
+
+    let resolved
+    try {
+      resolved = path.resolve(String(rootPath))
+      const stat = await fs.stat(resolved)
+      if (!stat.isDirectory()) return { success: false, error: 'Not a directory' }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+
+    const state = { watchers: new Map(), timer: null, hadRename: false, syncDirs: null }
+    projectWatchers.set(sender.id, state)
+
+    const notify = (isRename) => {
+      state.hadRename = state.hadRename || isRename
+      if (state.timer) clearTimeout(state.timer)
+      state.timer = setTimeout(() => {
+        state.timer = null
+        const hadRename = state.hadRename
+        state.hadRename = false
+        // The directory set may have changed - pick up new dirs
+        if (hadRename && state.syncDirs) state.syncDirs()
+        if (!sender.isDestroyed()) sender.send('project-fs-changed', { rootPath: resolved })
+      }, WATCH_DEBOUNCE_MS)
+    }
+
+    // Changes inside ignored dirs (node_modules, .git, dist, ...) are not
+    // reported - same policy as project-wide searches. Only the first
+    // path segment is checked, so events deeper in the tree still fire.
+    const isIgnoredPath = (rel) => IGNORED_DIRS.has(String(rel || '').split(/[\\/]/)[0])
+
+    try {
+      const watcher = fsWatch(resolved, { recursive: true }, (eventType, filename) => {
+        if (!isIgnoredPath(filename)) notify(eventType === 'rename')
+      })
+      watcher.on('error', () => {})
+      state.watchers.set(resolved, watcher)
+    } catch {
+      // No recursive watch on this platform (Linux): watch each dir
+      const attach = (dir) => {
+        if (state.watchers.has(dir)) return
+        try {
+          const w = fsWatch(dir, (eventType) => notify(eventType === 'rename'))
+          w.on('error', () => {})
+          state.watchers.set(dir, w)
+        } catch { /* unreadable dir */ }
+      }
+      const collectDirs = async (dir, out) => {
+        let entries
+        try { entries = await fs.readdir(dir, { withFileTypes: true }) } catch { return }
+        for (const entry of entries) {
+          if (out.size >= MAX_WATCH_DIRS) return
+          if (entry.isDirectory() && !IGNORED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+            const full = path.join(dir, entry.name)
+            out.add(full)
+            await collectDirs(full, out)
+          }
+        }
+      }
+      state.syncDirs = async () => {
+        const next = new Set([resolved])
+        await collectDirs(resolved, next)
+        for (const [dir, w] of state.watchers) {
+          if (!next.has(dir)) {
+            try { w.close() } catch { /* already closed */ }
+            state.watchers.delete(dir)
+          }
+        }
+        for (const dir of next) attach(dir)
+      }
+      await state.syncDirs()
+    }
+
+    if (!watcherHookedSenders.has(sender.id)) {
+      watcherHookedSenders.add(sender.id)
+      sender.once('destroyed', () => {
+        watcherHookedSenders.delete(sender.id)
+        stopProjectWatch(sender.id)
+      })
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle('unwatch-project', (event) => {
+    stopProjectWatch(event.sender.id)
+    return { success: true }
   })
 
   ipcMain.handle('select-folder', async (event) => {

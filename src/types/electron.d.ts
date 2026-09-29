@@ -7,6 +7,9 @@ export interface ElectronAPI {
   selectFolder: () => Promise<{ success: boolean; folderPath?: string; canceled?: boolean; error?: string }>
   searchFiles: (rootPath: string, pattern: string) => Promise<{ success: boolean; matches?: Array<{ file: string; line: number; text: string }>; truncated?: boolean; searchedFiles?: number; error?: string }>
   findFiles: (rootPath: string, pattern: string, maxResults?: number) => Promise<{ success: boolean; files?: string[]; truncated?: boolean; totalFiles?: number; error?: string }>
+  watchProject: (rootPath: string) => Promise<{ success: boolean; error?: string }>
+  unwatchProject: () => Promise<{ success: boolean; error?: string }>
+  onProjectFsChanged: (callback: (payload: { rootPath: string }) => void) => () => void
   gitStatus: (repoPath: string) => Promise<{ success: boolean; status?: any; hasCommits?: boolean; error?: string }>
   gitInit: (repoPath: string) => Promise<{ success: boolean; error?: string }>
   gitAdd: (repoPath: string, paths: string[]) => Promise<{ success: boolean; error?: string }>

@@ -1,11 +1,34 @@
 # Changelog
 
-All notable changes to Forger are documented in this file.
+All notable changes to Teaspoon IDE are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.6.0] - 2026-09-29
+
+### Changed
+
+- Renamed the project from **Forger** to **Teaspoon IDE** (package and
+  repository `forger-ide` → `teaspoon-ide`) to avoid confusion with the many
+  similarly named Forge/Forger projects. The name reflects the design goal:
+  getting real work done on a teaspoon of tokens.
+
+### Added
+
+- Explorer file watching: the main process watches the open project
+  folder (`fs.watch` recursive on Windows/macOS, per-directory watchers
+  elsewhere) and the Explorer tree reloads automatically when files or
+  folders are added, deleted, or renamed outside the app - external
+  editors, Windows Explorer, terminal commands, `git checkout`, etc.
+  Events are debounced, expanded folders stay expanded, and changes
+  inside ignored directories (`node_modules`, `.git`, `dist`, ...) are
+  not reported, matching the project-search ignore policy. The Git
+  panel refreshes its status on the same signal, so external git
+  operations are reflected without a manual refresh. A refresh button
+  (⟳) in the Explorer header triggers a manual reload as well.
 
 ## [0.5.0] - 2026-09-26
 

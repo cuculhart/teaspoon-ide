@@ -79,15 +79,15 @@ class ManagedService {
       models,
       expiresAt: parseExpiry(body.expires_at),
     })
-    window.dispatchEvent(new Event('forger:managed-changed'))
-    window.dispatchEvent(new Event('forger:llm-changed'))
+    window.dispatchEvent(new Event('teaspoon:managed-changed'))
+    window.dispatchEvent(new Event('teaspoon:llm-changed'))
     return { user: configService.getManagedUser() }
   }
 
   logout(): void {
     configService.clearManagedSession()
-    window.dispatchEvent(new Event('forger:managed-changed'))
-    window.dispatchEvent(new Event('forger:llm-changed'))
+    window.dispatchEvent(new Event('teaspoon:managed-changed'))
+    window.dispatchEvent(new Event('teaspoon:llm-changed'))
   }
 
   // Per-key spend/budget from the management server (proxies LiteLLM
@@ -117,8 +117,8 @@ class ManagedService {
   // not force a fresh sign-in; use logout() to drop it for good.
   disable(): void {
     configService.setManagedMode(false)
-    window.dispatchEvent(new Event('forger:managed-changed'))
-    window.dispatchEvent(new Event('forger:llm-changed'))
+    window.dispatchEvent(new Event('teaspoon:managed-changed'))
+    window.dispatchEvent(new Event('teaspoon:llm-changed'))
   }
 }
 
