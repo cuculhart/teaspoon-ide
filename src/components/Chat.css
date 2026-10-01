@@ -30,7 +30,7 @@
 .model-badge {
   font-size: 10px;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   padding: 2px 6px;
   border-radius: 3px;
   white-space: nowrap;
@@ -164,7 +164,7 @@
 
 .chat-message.user .message-content {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 
 .chat-message.assistant .message-content {
@@ -279,7 +279,7 @@
 
 .send-button {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border: none;
   border-radius: 4px;
   padding: 8px 16px;

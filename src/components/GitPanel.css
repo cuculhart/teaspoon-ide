@@ -133,7 +133,7 @@
 
 .git-button {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border: none;
   border-radius: 4px;
   padding: 8px 12px;
@@ -312,7 +312,7 @@
 .git-dialog-notice button {
   flex-shrink: 0;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border: none;
   border-radius: 4px;
   padding: 6px 10px;
@@ -354,7 +354,7 @@
 .git-dialog-actions .git-button {
   background: var(--accent);
   border: none;
-  color: white;
+  color: var(--on-accent);
 }
 
 .git-dialog-actions .git-button:hover:not(:disabled) {

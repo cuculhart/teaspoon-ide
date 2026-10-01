@@ -312,7 +312,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 <option value="system">{t('System')}</option>
                 <option value="dark">{t('Dark')}</option>
                 <option value="light">{t('Light')}</option>
-                <option value="quiet">{t('Quiet Light')}</option>
+                <option value="quiet">{t('Organic Light')}</option>
+                <option value="ocean">{t('Muted Ocean')}</option>
+                <option value="console">{t('Ancient Console')}</option>
+                <option value="walnut">{t('Walnut')}</option>
+                <option value="heritage">{t('Heritage')}</option>
               </select>
             </div>
 

@@ -16,6 +16,7 @@
   --text-muted: #6e6e6e;
   --accent: #0e639c;
   --accent-hover: #1177bb;
+  --on-accent: #ffffff;
   --accent-soft: #1e3a5f;
   --selected-bg: #264f78;
   --error: #f48771;
@@ -53,8 +54,8 @@
   --shadow: rgba(0, 0, 0, 0.15);
 }
 
-/* Quiet Light: muted warm-paper palette for users who find pure
-   white backgrounds glaring */
+/* Organic Light (internal id: 'quiet'): muted warm-paper palette for
+   users who find pure white backgrounds glaring */
 [data-theme='quiet'] {
   color-scheme: light;
   --bg-primary: #f5f1e8;
@@ -80,6 +81,125 @@
   --diff-removed: #b35040;
   --overlay-bg: rgba(0, 0, 0, 0.4);
   --shadow: rgba(0, 0, 0, 0.15);
+}
+
+/* Muted Ocean: deep-sea blue, Night Owl-inspired but with lower text
+   luminance and saturation for long sessions */
+[data-theme='ocean'] {
+  color-scheme: dark;
+  --bg-primary: #0a1b2a;
+  --bg-secondary: #0e2233;
+  --bg-tertiary: #122a3d;
+  --bg-deep: #081726;
+  --bg-hover: #13314a;
+  --bg-active: #17405c;
+  --bg-hover-strong: #1d4a6b;
+  --border-color: #1c3a50;
+  --border-strong: #2a5470;
+  --text-primary: #a9bdd0;
+  --text-secondary: #9fb3c6;
+  --text-tertiary: #5d7080;
+  --text-muted: #4a5d6c;
+  --accent: #b3922f;
+  --accent-hover: #c9a642;
+  --on-accent: #1c1408;
+  --accent-soft: #25344a;
+  --selected-bg: #1d4a6b;
+  --error: #e07a6a;
+  --error-hover: #f08a7a;
+  --diff-added: #5aa07a;
+  --diff-removed: #c96a5a;
+  --overlay-bg: rgba(0, 0, 0, 0.5);
+  --shadow: rgba(0, 0, 0, 0.35);
+}
+
+/* Ancient Console: green-phosphor CRT homage. The editor pane is the
+   brightest green surface; UI chrome recedes darker around it */
+[data-theme='console'] {
+  color-scheme: dark;
+  --bg-primary: #0c2214;
+  --bg-secondary: #0d1a10;
+  --bg-tertiary: #16301d;
+  --bg-deep: #0a150c;
+  --bg-hover: #14301c;
+  --bg-active: #1a3d24;
+  --bg-hover-strong: #21492d;
+  --border-color: #1e3823;
+  --border-strong: #2c4f34;
+  --text-primary: #93b494;
+  --text-secondary: #84a485;
+  --text-tertiary: #57745a;
+  --text-muted: #47614a;
+  --accent: #7fae72;
+  --accent-hover: #93c186;
+  --on-accent: #0d1a10;
+  --accent-soft: #1a3321;
+  --selected-bg: #1f4228;
+  --error: #d08a6a;
+  --error-hover: #e09a7a;
+  --diff-added: #7fae72;
+  --diff-removed: #d08a6a;
+  --overlay-bg: rgba(0, 0, 0, 0.5);
+  --shadow: rgba(0, 0, 0, 0.35);
+}
+
+/* Walnut: warm dark wood tones with cool silvery text (a bright nail
+   driven into dark wood) */
+[data-theme='walnut'] {
+  color-scheme: dark;
+  --bg-primary: #2e2119;
+  --bg-secondary: #281c14;
+  --bg-tertiary: #3a2b20;
+  --bg-deep: #241a12;
+  --bg-hover: #3a2c1f;
+  --bg-active: #473626;
+  --bg-hover-strong: #544131;
+  --border-color: #4a382a;
+  --border-strong: #63503e;
+  --text-primary: #c2c7cb;
+  --text-secondary: #b3b8bc;
+  --text-tertiary: #857262;
+  --text-muted: #6f6152;
+  --accent: #b08d57;
+  --accent-hover: #c4a06a;
+  --on-accent: #1a1208;
+  --accent-soft: #3d2f22;
+  --selected-bg: #4a3a2a;
+  --error: #d98a70;
+  --error-hover: #e89a80;
+  --diff-added: #8aa86a;
+  --diff-removed: #d07a5a;
+  --overlay-bg: rgba(0, 0, 0, 0.5);
+  --shadow: rgba(0, 0, 0, 0.4);
+}
+
+/* Heritage: pale pine woodgrain with reddish-black groove text -
+   the beige-box PC era */
+[data-theme='heritage'] {
+  color-scheme: light;
+  --bg-primary: #e6d7bd;
+  --bg-secondary: #dccdb0;
+  --bg-tertiary: #d2c2a3;
+  --bg-deep: #efe6d2;
+  --bg-hover: #d6c7a9;
+  --bg-active: #c9b797;
+  --bg-hover-strong: #bda987;
+  --border-color: #b8a486;
+  --border-strong: #98876a;
+  --text-primary: #2b1d17;
+  --text-secondary: #3d2c22;
+  --text-tertiary: #8a7a66;
+  --text-muted: #a3937d;
+  --accent: #8a5a33;
+  --accent-hover: #714824;
+  --accent-soft: #e0d3b5;
+  --selected-bg: #cdbb97;
+  --error: #a04030;
+  --error-hover: #8a3428;
+  --diff-added: #4e7a45;
+  --diff-removed: #a04535;
+  --overlay-bg: rgba(0, 0, 0, 0.4);
+  --shadow: rgba(60, 40, 20, 0.2);
 }
 
 * {

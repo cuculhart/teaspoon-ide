@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { DiffEditor } from '@monaco-editor/react'
 import { themeService, ResolvedTheme } from '../services/themeService'
+import { MONACO_THEME } from '../monacoSetup'
 import { configService } from '../services/configService'
 import { getLanguage } from '../utils/language'
 import { useT } from '../services/i18nService'
@@ -88,7 +89,7 @@ const FileEditApproval: React.FC<FileEditApprovalProps> = ({ edits, onApprove, o
                     language={getLanguage(edit.filePath)}
                     original={edit.oldContent}
                     modified={edit.newContent}
-                    theme={monacoTheme === 'dark' ? 'vs-dark' : monacoTheme === 'quiet' ? 'teaspoon-quiet' : 'vs'}
+                    theme={MONACO_THEME[monacoTheme] ?? 'vs'}
                     options={{
                       renderSideBySide: false,
                       readOnly: true,

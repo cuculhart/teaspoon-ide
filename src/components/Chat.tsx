@@ -197,6 +197,21 @@ function findFileCommands(response: string): FileCommand[] {
     commands.push({ type: 'edit', arg: cleanPathArg(match[1].trim()), body: match[2], start: match.index, end: match.index + match[0].length })
   }
 
+  // Salvage: an EDIT_FILE opener never closed with "// END_EDIT_FILE", but
+  // the body ends with a complete >>>>>>> REPLACE delimiter - the model
+  // forgot the terminator. Take the body up to the last delimiter line.
+  const editOpenRegex = /\/\/ EDIT_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n/g
+  while ((match = editOpenRegex.exec(response)) !== null) {
+    const start = match.index
+    if (commands.some(c => start >= c.start && start < c.end)) continue
+    const rest = response.slice(start + match[0].length)
+    const delimiters = [...rest.matchAll(/^>{3,}[^\n]*$/gm)]
+    if (delimiters.length === 0) continue
+    const last = delimiters[delimiters.length - 1]
+    const bodyEnd = last.index! + last[0].length
+    commands.push({ type: 'edit', arg: cleanPathArg(match[1].trim()), body: rest.slice(0, bodyEnd), start, end: start + match[0].length + bodyEnd })
+  }
+
   // The AI sometimes puts several commands on one line ("// READ_FILE: a// LIST_FILES: b"),
   // so the path argument ends at the next "//" command or the end of the line.
   const readFileRegex = /\/\/ READ_FILE[ \t]*:?[ \t]*([^\n]+?)(?=[ \t]*\/\/|\n|$)/g
@@ -240,11 +255,22 @@ interface EditBlock {
 }
 
 function parseEditBlocks(body: string): EditBlock[] {
+  // Small models wrap blocks in ``` fences, emit delimiters with the wrong
+  // run length, or drop the SEARCH/REPLACE words entirely - accept all of
+  // these instead of rejecting the whole edit.
+  const cleaned = body.replace(/^[ \t]*```[^\n]*$/gm, '')
   const blocks: EditBlock[] = []
-  const re = /<<<<<<< SEARCH\r?\n([\s\S]*?)\r?\n?={5,}\r?\n([\s\S]*?)\r?\n?>>>>>>> REPLACE/g
+  const strict = /<{3,}[ \t]*SEARCH[^\n]*\r?\n([\s\S]*?)\r?\n?={3,}[ \t]*\r?\n([\s\S]*?)\r?\n?>{3,}[ \t]*REPLACE[^\n]*/g
   let match
-  while ((match = re.exec(body)) !== null) {
+  while ((match = strict.exec(cleaned)) !== null) {
     blocks.push({ search: match[1], replace: match[2] })
+  }
+  if (blocks.length === 0) {
+    // Fallback: bare delimiters, or with stray/missing SEARCH/REPLACE words
+    const loose = /<{3,}[^\n]*\r?\n([\s\S]*?)\r?\n?={3,}[^\n]*\r?\n([\s\S]*?)\r?\n?>{3,}[^\n]*/g
+    while ((match = loose.exec(cleaned)) !== null) {
+      blocks.push({ search: match[1], replace: match[2] })
+    }
   }
   return blocks
 }
@@ -291,7 +317,8 @@ async function parseAndExecuteFileCommands(
   requestApproval: (edits: FileEdit[]) => Promise<FileEdit[] | null>,
   requestCommandApproval: (commands: string[]) => Promise<string[] | null>,
   runCommandAndWait: (command: string) => Promise<RunResult>,
-  userText: string
+  userText: string,
+  state?: { editFailCount: number; unresolvedFailure: boolean }
 ): Promise<CommandExecutionResult> {
   const commands = findFileCommands(response)
 
@@ -541,6 +568,20 @@ async function parseAndExecuteFileCommands(
 
       item.existed = readable
       if (item.kind === 'write') {
+        // Weak models sometimes paste SEARCH/REPLACE diff syntax inside a
+        // WRITE_FILE body - writing it literally produces a broken file.
+        // Reject and ask for raw file content instead.
+        if (/^<{3,}/m.test(item.body) && /^>{3,}/m.test(item.body)) {
+          if (state) state.unresolvedFailure = true
+          notes[item.index] = `⚠️ ${i18nService.t('Write failed for')} ${item.arg}: ${i18nService.t('diff markers found in content')}`
+          feedback.push(
+            `WRITE_FILE ${item.arg}: rejected - the content contains SEARCH/REPLACE diff markers ` +
+            `(<<<<<<< / ======= / >>>>>>>). WRITE_FILE takes the raw file content only; ` +
+            `re-emit it with just the file content, no diff syntax.`
+          )
+          needsContinuation = true
+          continue
+        }
         const edit: FileEdit = { filePath: item.path, oldContent, newContent: item.body }
         edits.push(edit)
         planByEdit.set(edit, item)
@@ -553,11 +594,24 @@ async function parseAndExecuteFileCommands(
         }
         const applied = applyEditBlocks(oldContent, parseEditBlocks(item.body))
         if (applied.error) {
+          if (state) {
+            state.editFailCount++
+            state.unresolvedFailure = true
+          }
           notes[item.index] = `⚠️ ${i18nService.t('Edit failed for')} ${item.arg}: ${applied.error}`
-          feedback.push(`${label} ${item.arg}: failed - ${applied.error}`)
+          // Weak models recover better from a tiny complete example than
+          // from prose rules. After repeated failures, steer to WRITE_FILE
+          // (a full-file rewrite is easier for them than diff syntax).
+          let hint = ` A complete EDIT_FILE looks like this:\n` +
+            `// EDIT_FILE: ${item.arg}\n<<<<<<< SEARCH\n<exact lines to replace>\n=======\n<new lines>\n>>>>>>> REPLACE\n// END_EDIT_FILE`
+          if (state && state.editFailCount >= 2) {
+            hint += `\nEDIT_FILE has failed ${state.editFailCount} times in a row - stop using it and emit "// WRITE_FILE: ${item.arg}" with the FULL corrected file content instead.`
+          }
+          feedback.push(`${label} ${item.arg}: failed - ${applied.error}.${hint}`)
           needsContinuation = true
           continue
         }
+        if (state) state.editFailCount = 0
         const edit: FileEdit = { filePath: item.path, oldContent, newContent: applied.content! }
         edits.push(edit)
         planByEdit.set(edit, item)
@@ -642,11 +696,17 @@ async function parseAndExecuteFileCommands(
             `RUN_COMMAND ${r.command} result - ${statusText}:\n${tail || '(no output)'}`
           )
           needsContinuation = true
+          // A non-zero exit leaves the task unresolved until a command
+          // succeeds; timeouts/opens are ambiguous and keep the flag.
+          if (state && !result.timedOut && result.exitCode !== null) {
+            state.unresolvedFailure = result.exitCode !== 0
+          }
         }
       } catch (error) {
         notes[r.index] = `⚠️ ${i18nService.t('Error running')} ${r.command}: ${error}`
         feedback.push(`RUN_COMMAND ${r.command}: failed - ${error}`)
         needsContinuation = true
+        if (state) state.unresolvedFailure = true
       }
     }
   }
@@ -1064,6 +1124,13 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
       ]
       let currentInput = userMessage.content
       let lastStepRanCommands = false
+      // Tracks consecutive EDIT_FILE failures across loop steps so the
+      // feedback can steer the model to WRITE_FILE instead of retrying the
+      // same broken diff syntax forever.
+      const agentState = { editFailCount: 0, unresolvedFailure: false }
+      // One-shot guard: nudge the model at most once when it declares
+      // completion while a failure is still unresolved.
+      let failureNudged = false
 
       // Streaming (Ollama path): deltas accumulate into a live bubble
       // rendered below the message list. On completion the parsed display
@@ -1084,7 +1151,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
         const callStart = performance.now()
         const response = await llmService.sendMessage(currentInput, context, historyForRequest, onDelta, controller.signal, llmPin)
         const latencyMs = Math.round(performance.now() - callStart)
-        const { display, feedback, needsContinuation, checkpoint } = await parseAndExecuteFileCommands(response, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content)
+        const { display, feedback, needsContinuation, checkpoint } = await parseAndExecuteFileCommands(response, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, agentState)
         if (controller.signal.aborted) break
         setStreamingText(null)
         if (checkpoint && checkpoint.length > 0) {
@@ -1108,13 +1175,28 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
 
         historyForRequest.push({ role: 'assistant', content: response, timestamp: Date.now() })
 
-        // No command results the AI needs -> the AI is done
-        if (!needsContinuation) break
+        // No command results the AI needs -> the AI is done. Except: if it
+        // declared completion while an earlier command/edit failure is still
+        // unresolved, give it one chance to fix or explicitly justify it.
+        if (!needsContinuation) {
+          if (agentState.unresolvedFailure && !failureNudged) {
+            failureNudged = true
+            currentInput =
+              `Before you finish: a command or file edit earlier in this session failed. ` +
+              `If it has already been resolved or is unrelated to the user's request, ` +
+              `say so briefly in your final answer - otherwise fix it now.`
+            continue
+          }
+          break
+        }
 
+        // Small models burn steps re-verifying finished work - tell them
+        // the remaining step budget and how to close out the task.
         currentInput =
           `Command execution results:\n${feedback.join('\n\n')}\n\n` +
-          `Continue with the user's request. If you have enough information, ` +
-          `perform the requested file edit or give your final answer now.`
+          `(Step ${step + 1} of ${MAX_STEPS}) ` +
+          `Continue with the user's request. If the work is already done, ` +
+          `reply with the final answer only - no file commands.`
       }
 
       // If the last step executed commands (e.g. writes), the visible reply is

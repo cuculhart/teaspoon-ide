@@ -265,7 +265,7 @@
 
 .save-button {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border: none;
   border-radius: 4px;
   padding: 8px 16px;

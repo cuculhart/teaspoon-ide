@@ -158,31 +158,6 @@ Implemented packaging work:
 - node-pty — `.node` binaries unpacked from the asar via `asar.unpack`
 - Fatal main-process errors are logged to `%TEMP%/teaspoon-crash.log` (packaged builds have no console)
 
-## Roadmap
-
-### Recently Implemented
-
-- ✅ **True TTY** — node-pty (ConPTY) + xterm.js. Interactive CLI, ANSI colors, key input, resize
-- ✅ **AI command execution** — `// RUN_COMMAND:` + mandatory approval modal, results fed back to the AI
-- ✅ **Write-approval flow** — Monaco diff approval/reject before WRITE_FILE executes
-- ✅ **Panel resizing** — Drag to resize sidebar / terminal / chat
-- ✅ **AI search tools** — `// GREP:` (content) / `// FIND_FILES:` (paths) for targeted reads
-- ✅ **Diff-based editing (EDIT_FILE)** — SEARCH/REPLACE blocks for partial edits; far fewer output tokens than full rewrites
-- ✅ **Checkpoints / rollback** — Snapshot before AI writes; "↩ Rollback" restores only AI-touched files
-- ✅ **Ctrl+P quick open** — Fuzzy file search + recent files
-- ✅ **In-project search UI** — Full-text search from the sidebar, click to jump
-- ✅ **Markdown preview / PDF & HTML export** — No Marketplace or external tools needed
-- ✅ **Packaging** — `npm run package` for a portable `Teaspoon.exe`; `npm run make` for a Squirrel installer
-- ✅ **Folder D&D / CLI open** — Drop a folder on the exe or window, or `Teaspoon.exe <path>`
-- ✅ **Context optimization** — File-tree-only automatic context; contents fetched on demand via tools. Configurable in Settings > AI Context
-- ✅ **Localization framework** — Drop a `lang/<code>.json` mapping English source → translation. Dev: `<projectRoot>/lang/`; packaged: `resources/lang/` (user-editable, next to the exe). UI uses the `useT()` hook / `t('...')`
-- ✅ **Ollama support** — Settings > LLM Provider switches Gemini / Ollama. Ollama uses its OpenAI-compatible API (`/v1/chat/completions`) via plain fetch (no new dependencies); installed models auto-detected via `/api/tags`. Fully offline capable
-- ✅ **About screen** — Help > About Teaspoon IDE (author, web site, license)
-
-### Future Plans (priority order)
-
-1. **Editor tabs** — Low priority (may be unnecessary with AI-centric editing; revisit if needed)
-
 ## Tech Stack
 
 - **Framework**: Electron + React + TypeScript

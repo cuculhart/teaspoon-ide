@@ -54,6 +54,8 @@ If you need to run a shell command (e.g. install dependencies, run tests, build)
 
 CONTEXT NOTE: The project context contains only a file tree (paths, no contents). Fetch the contents you need with READ_FILE, GREP, or LIST_FILES - never guess what a file contains.
 
+VERIFICATION: If the project has a test suite (a tests/ directory, test_*.py files, a "test" script in package.json, etc.), run it with RUN_COMMAND after your edits and fix any regressions before giving your final answer. When the user requires existing behavior or public APIs to stay unchanged, double-check that function signatures and semantics were preserved.
+
 RULES for file paths:
 - Always use paths inside the current project. Prefer paths relative to the project root (e.g. "doc/test.md").
 - To overwrite an existing file, use the exact path of that file as listed in the context.

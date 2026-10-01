@@ -8,7 +8,8 @@ export interface RecentProject {
 const RECENT_PROJECTS_KEY = 'recent_projects'
 const MAX_RECENT_PROJECTS = 10
 
-export type ThemeMode = 'system' | 'dark' | 'light' | 'quiet'
+export type ThemeMode =
+  'system' | 'dark' | 'light' | 'quiet' | 'ocean' | 'console' | 'walnut' | 'heritage'
 
 // 'tree' = send only the file list (AI fetches contents via tools).
 // 'full' = send scored file contents up to the token budget (legacy).
@@ -174,7 +175,8 @@ class ConfigService {
 
   getTheme(): ThemeMode {
     const value = this.get('THEME')
-    return value === 'dark' || value === 'light' || value === 'quiet' ? value : 'system'
+    const modes: ThemeMode[] = ['dark', 'light', 'quiet', 'ocean', 'console', 'walnut', 'heritage']
+    return modes.includes(value as ThemeMode) ? (value as ThemeMode) : 'system'
   }
 
   setTheme(theme: ThemeMode): void {

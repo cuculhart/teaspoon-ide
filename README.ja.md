@@ -8,7 +8,7 @@
 
 ファイルエクスプローラー、コードエディター、AIチャット、Git操作、ターミナルが一体となった、スタンドアロン型のElectron製AIコーディングアシスタントです。
 
-**Teaspoon IDE** の名前は「小匙一杯（a teaspoon）のトークンで実用的な仕事をこなす」という設計目標に由来します。デフォルトで送信するコンテキストはファイルツリー（パス一覧）のみで、AI は READ_FILE/GREP を通じて必要な内容だけを取得し、メッセージあたりのトークンを抑えます。
+**Teaspoon IDE** の名前は「小さじ1杯（a teaspoon）のトークンで実用的な仕事をこなす」という設計目標に由来します。デフォルトで送信するコンテキストはファイルツリー（パス一覧）のみで、AI は READ_FILE/GREP を通じて必要な内容だけを取得し、メッセージあたりのトークンを抑えます。
 
 パッケージ名・リポジトリ名は `teaspoon-ide`。呼称・表示名は **Teaspoon IDE** です。（旧称: **Forger**）
 
@@ -154,32 +154,6 @@ litellm --model gemini/gemini-3.8-flash --api_key YOUR_REAL_API_KEY
 - Monaco Editor — `monaco-editor` をローカルバンドル化（`src/monacoSetup.ts` でworkerを同梱、CDN依存解消・オフライン動作）
 - node-pty — `asar.unpack` で `.node` バイナリをasar外に展開
 - メインプロセスの致命的エラーを `%TEMP%/teaspoon-crash.log` に記録（パッケージ版はコンソールが無いため）
-
-## ロードマップ
-
-### 実装済み（最近の追加分）
-
-- ✅ **真のTTY** — node-pty（ConPTY）+ xterm.js。対話型CLI・ANSIカラー・キー入力・リサイズ対応
-- ✅ **AIコマンド実行** — `// RUN_COMMAND:` + 必須承認モーダル、結果をAIへフィードバック
-- ✅ **書き込み承認フロー** — WRITE_FILE実行前にMonaco差分で承認/却下
-- ✅ **パネルリサイズ** — サイドバー/ターミナル/チャット境界をドラッグで可変
-- ✅ **AI用検索ツール** — `// GREP:`（内容検索）/ `// FIND_FILES:`（パス検索）で狙い撃ち読み込み
-- ✅ **差分適用編集（EDIT_FILE）** — SEARCH/REPLACEブロックで部分編集。全量上書きより出力トークンを大幅節約
-- ✅ **チェックポイント/ロールバック** — AI書き込み前のスナップショットを保持し「↩ Rollback」で復元。git不要・AIが触ったファイルのみ戻す（ユーザーの未コミット変更は無傷）
-- ✅ **Ctrl+Pクイックオープン** — ファイル名ファジー検索 + 最近開いたファイル一覧（File > Quick Open）
-- ✅ **プロジェクト内検索UI** — サイドバー「Search」タブで全文検索、結果クリックで該当行にジャンプ
-- ✅ **Markdownプレビュー / PDF・HTML出力** — .mdファイルのPreviewトグル（marked+DOMPurify、GFM対応）、File > Export Markdown to PDF（Electron printToPDF）/ HTML（スタイル埋め込みの単一ファイル）— Marketplace不要
-- ✅ **パッケージ化** — `npm run package` で `Teaspoon.exe` ポータブルビルド（Monacoローカルバンドル・厳格CSP・node-pty unpack済み）。`npm run make` でSquirrelインストーラー
-- ✅ **フォルダD&D / CLIでプロジェクトを開く** — exeにフォルダをドロップ、ウィンドウへドロップ、`Teaspoon.exe <path>` で即オープン（二重起動は既存インスタンスに引き渡し）
-- ✅ **コンテキスト最適化** — 自動コンテキストはファイルツリー（パス一覧）のみ送信。中身はAIがREAD_FILE/GREPで必要分だけ取得 → メッセージ毎のトークンを大幅節約。Settings > AI Context でモード（tree/full）とツリー上限数を調整可能（手動ファイル選択モードは従来通り全内容を送信）
-
-- ✅ **多言語対応の基盤** — `lang/<code>.json` に英語原文→訳文の対応表を置くだけで言語追加可能（`_name`が言語表示名）。devはプロジェクト直下`lang/`、パッケージ版は`resources/lang/`（exe隣、ユーザー編集可）。Settings > Appearance > Languageで切替。UI側は `useT()` フック + `t('Explorer')` で参照
-- ✅ **Ollama対応** — Settings > LLM Provider で `Gemini / Ollama` 切替。OllamaはOpenAI互換API（`/v1/chat/completions`）をfetch直叩き（新規依存なし）。エンドポイント・モデルは設定可能、`/api/tags`からインストール済みモデルを自動検出。完全オフライン動作可
-- ✅ **About画面** — Help > About Teaspoon IDE（作者・Webサイト・ライセンス表示）
-
-### 今後の計画（実装優先度順）
-
-1. **エディタタブ** — 優先度低（AI編集中心なら不要かも。必要になったら検討）
 
 ## 技術スタック
 

@@ -246,7 +246,7 @@
 
 .dialog-actions button {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border: none;
   border-radius: 4px;
   padding: 6px 12px;
@@ -272,10 +272,10 @@
 
 /* Direct-child buttons only - the Recent Projects list items are also
    buttons but must keep their own colors (accent bg + dark text was
-   unreadable, worst in Quiet Light). */
+   unreadable, worst in Organic Light). */
 .explorer-empty > button {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border: none;
   border-radius: 4px;
   padding: 6px 12px;

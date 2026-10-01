@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-01
+
+### Changed
+
+- The "Quiet Light" theme is renamed "Organic Light" - the palette is
+  a muted warm-paper variant of our own rather than a port of VS Code's
+  Quiet Light, so it gets its own name. The stored setting value stays
+  `quiet`, so existing selections keep working.
+
+### Added
+
+- Four new themes (Settings > Theme): **Muted Ocean** (deep-sea blue,
+  Night Owl-inspired but with reduced text luminance), **Ancient
+  Console** (eye-friendly green-phosphor CRT homage with the editor pane
+  as the brightest surface), **Walnut** (dark wood with cool silvery
+  "new nail" text), and **Heritage** (pale woodgrain with reddish-black
+  groove text, echoing beige-box PCs). Each theme ships with a matching
+  Monaco editor palette; the internal ids are `ocean`, `console`,
+  `walnut`, and `heritage`.
+- Post-edit test verification is now part of the agent's standard
+  procedure: when the project has a test suite (a `tests/` directory,
+  `test_*.py` files, a `test` script in package.json, etc.), the prompt
+  requires running it via RUN_COMMAND after edits and fixing regressions
+  before the final answer. It also reminds the model to keep public
+  signatures and semantics intact when the user asks for
+  behavior-preserving changes.
+
+### Fixed
+
+- White text on `--accent` backgrounds is no longer hardcoded: a new
+  `--on-accent` variable sets the label color per theme, so themes with
+  light accents (Muted Ocean's gold, Ancient Console's green, Walnut's
+  brass) now render near-black ink text on user chat bubbles, send and
+  submit buttons, and dialogs - previously white on gold was barely
+  readable.
+- `EDIT_FILE` parsing is far more tolerant of small-model output:
+  delimiter runs of the wrong length (`<<<`/`>>>>` instead of seven),
+  missing `SEARCH`/`REPLACE` words, and diff blocks wrapped in markdown
+  fences are all accepted instead of rejected. An `EDIT_FILE` opener that
+  was never closed with `// END_EDIT_FILE` is now salvaged when the body
+  already ends with a complete `>>>>>>> REPLACE` delimiter - previously
+  the block was dropped and the model burned a step re-emitting it.
+- `WRITE_FILE` bodies that contain SEARCH/REPLACE diff markers are
+  rejected before touching the disk (the markers would be written
+  literally, producing a broken file). The model is told to re-emit the
+  raw file content instead.
+- Repeated edit failures now escalate: the error feedback includes a
+  complete minimal `EDIT_FILE` example, and after two consecutive
+  failures the model is told to stop retrying diff syntax and emit a
+  `WRITE_FILE` with the full file content instead.
+- The agent loop no longer lets a turn end on an unresolved failure: if
+  the model gives its final answer while an earlier command or edit in
+  the same session failed (e.g. tests still red), it gets one explicit
+  nudge to either fix the failure or state why it is unrelated.
+- The continuation prompt now reports the remaining step budget
+  (`Step N of 6`) and tells the model to reply with a plain final answer
+  once the work is done - small models kept re-verifying finished work
+  until the step budget ran out.
+
 ## [0.6.0] - 2026-09-29
 
 ### Changed

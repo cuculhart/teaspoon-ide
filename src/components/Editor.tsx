@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import Editor, { DiffEditor } from '@monaco-editor/react'
 import { themeService, ResolvedTheme } from '../services/themeService'
+import { MONACO_THEME } from '../monacoSetup'
 import { configService } from '../services/configService'
 import { getLanguage } from '../utils/language'
 import { renderMarkdown, MARKDOWN_CSS } from '../utils/markdown'
@@ -102,7 +103,7 @@ const CodeEditor: React.FC<EditorProps> = ({ file, content, onChange, diff, onCl
     }
   }, [])
 
-  const monacoThemeName = monacoTheme === 'dark' ? 'vs-dark' : monacoTheme === 'quiet' ? 'teaspoon-quiet' : 'vs'
+  const monacoThemeName = MONACO_THEME[monacoTheme] ?? 'vs'
   const editorOptions = {
     minimap: { enabled: true },
     fontSize,

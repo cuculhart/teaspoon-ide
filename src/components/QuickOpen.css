@@ -64,7 +64,7 @@
 
 .quickopen-item.selected .quickopen-name,
 .quickopen-item.selected .quickopen-path {
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .quickopen-name {
