@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-03
+
+### Fixed
+
+- Command failures are no longer fed back to the model as bare exit
+  codes: RUN_COMMAND results now carry the output tail and an
+  interpretation hint that distinguishes test-runner failures,
+  command-not-found errors, and other non-zero exits. The system prompt
+  tells the model that a non-zero exit is a result to read, not proof of
+  a broken environment, and after three consecutive failed commands the
+  feedback tells it to stop probing alternate interpreters/PATHs - the
+  model previously burned ~30 steps hunting for Python installs after
+  misreading a failing test as an environment problem.
+- Tests that were already failing before the agent's first edit are now
+  reported as pre-existing failures rather than regressions, and the
+  prompt tells the model to say so and finish instead of trying to fix
+  unrelated failures.
+- A failed WRITE_FILE/EDIT_FILE can no longer be silently abandoned: it
+  stays flagged as unresolved until a later write/edit succeeds (a
+  passing test run no longer clears the flag), every continuation
+  message reminds the model that the target file is still unchanged on
+  disk, and the end-of-turn nudge names the failed operation and the
+  last failing command's output. If the model declares completion anyway
+  without ever applying the change, a warning is appended telling the
+  user the reported changes may not exist on disk - previously a failed
+  edit followed by a passing narrow test could produce a confident but
+  false "refactoring complete" report.
+- Terminal panel: finished command blocks now auto-collapse to a
+  one-line status row (icon, command, exit code) while the running
+  process stays expanded, so earlier failed commands no longer dominate
+  the view after a task ultimately succeeds. Completed headers are
+  clickable to expand/collapse their output; Clear still removes all
+  finished blocks.
+- The terminal input placeholder no longer shows `npm install`, which
+  looked like an already-entered or suggested command - it now reads
+  "Type a command...".
+- Open Project dialog: the action row (Select Folder / Clone Repository
+  / New Project / Cancel) now wraps instead of overflowing the
+  fixed-width dialog and overlapping the content below, which happened
+  whenever the combined button width exceeded the dialog - depending on
+  UI language and font metrics.
+
 ## [0.7.0] - 2026-10-01
 
 ### Changed

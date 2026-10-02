@@ -77,6 +77,21 @@
   background: var(--bg-primary);
 }
 
+.terminal-process-header.clickable {
+  cursor: pointer;
+}
+
+.terminal-process-header.clickable:hover {
+  background: var(--bg-hover);
+}
+
+.terminal-collapse {
+  font-size: 10px;
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
 .terminal-status {
   font-size: 11px;
   width: 14px;

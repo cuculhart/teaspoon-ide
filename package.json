@@ -1,7 +1,7 @@
 {
   "name": "teaspoon-ide",
   "productName": "Teaspoon",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Teaspoon IDE - Standalone Electron-based AI coding assistant (a teaspoon of tokens)",
   "main": "electron/main.js",
   "config": {},

@@ -318,7 +318,24 @@ async function parseAndExecuteFileCommands(
   requestCommandApproval: (commands: string[]) => Promise<string[] | null>,
   runCommandAndWait: (command: string) => Promise<RunResult>,
   userText: string,
-  state?: { editFailCount: number; unresolvedFailure: boolean }
+  state?: {
+    editFailCount: number
+    unresolvedFailure: boolean
+    // A file write/edit that failed and was never retried. Tracked
+    // separately from unresolvedFailure because a successful RUN_COMMAND
+    // must not clear it - otherwise the model can abandon a failed edit,
+    // run tests, and falsely report the change as done.
+    unresolvedEdit?: boolean
+    // Consecutive RUN_COMMAND failures - used to stop the model from
+    // probing alternate interpreters/paths when a result is just a
+    // test failure.
+    runFailStreak?: number
+    // Successful file edits so far; a test command failing before any
+    // edit means the failure is pre-existing, not a regression.
+    editsApplied?: number
+    lastRunFailure?: { command: string; exitCode: number | null; timedOut: boolean; tail: string } | null
+    preEditTestFailure?: { command: string; tail: string } | null
+  }
 ): Promise<CommandExecutionResult> {
   const commands = findFileCommands(response)
 
@@ -553,6 +570,10 @@ async function parseAndExecuteFileCommands(
 
     const edits: FileEdit[] = []
     const planByEdit = new Map<FileEdit, PlanItem>()
+    // Track per-batch outcome for agentState.unresolvedEdit: a failed
+    // write/edit stays outstanding until a later write/edit succeeds.
+    let batchEditFailed = false
+    let batchEditSucceeded = false
 
     for (const item of items) {
       const label = item.kind === 'write' ? 'WRITE_FILE' : 'EDIT_FILE'
@@ -572,7 +593,7 @@ async function parseAndExecuteFileCommands(
         // WRITE_FILE body - writing it literally produces a broken file.
         // Reject and ask for raw file content instead.
         if (/^<{3,}/m.test(item.body) && /^>{3,}/m.test(item.body)) {
-          if (state) state.unresolvedFailure = true
+          batchEditFailed = true
           notes[item.index] = `⚠️ ${i18nService.t('Write failed for')} ${item.arg}: ${i18nService.t('diff markers found in content')}`
           feedback.push(
             `WRITE_FILE ${item.arg}: rejected - the content contains SEARCH/REPLACE diff markers ` +
@@ -587,6 +608,7 @@ async function parseAndExecuteFileCommands(
         planByEdit.set(edit, item)
       } else {
         if (!readable) {
+          batchEditFailed = true
           notes[item.index] = `⚠️ ${i18nService.t('Cannot edit')} ${item.arg}: ${i18nService.t('file not found or unreadable')}`
           feedback.push(`${label} ${item.arg}: failed - file not found or unreadable. If you intended to create it, use // WRITE_FILE: with the full content instead.`)
           needsContinuation = true
@@ -594,10 +616,8 @@ async function parseAndExecuteFileCommands(
         }
         const applied = applyEditBlocks(oldContent, parseEditBlocks(item.body))
         if (applied.error) {
-          if (state) {
-            state.editFailCount++
-            state.unresolvedFailure = true
-          }
+          batchEditFailed = true
+          if (state) state.editFailCount++
           notes[item.index] = `⚠️ ${i18nService.t('Edit failed for')} ${item.arg}: ${applied.error}`
           // Weak models recover better from a tiny complete example than
           // from prose rules. After repeated failures, steer to WRITE_FILE
@@ -641,6 +661,8 @@ async function parseAndExecuteFileCommands(
           ? `✅ ${i18nService.t('Wrote file')}: ${item.path}`
           : `✅ ${i18nService.t('Edited file')}: ${item.path}`
         feedback.push(`${label} ${pathRelativeToRoot(item.path)}: success`)
+        batchEditSucceeded = true
+        if (state) state.editsApplied = (state.editsApplied ?? 0) + 1
 
         // Emit event to refresh explorer (and editor if the file is open)
         window.dispatchEvent(new CustomEvent('file-created', {
@@ -651,7 +673,13 @@ async function parseAndExecuteFileCommands(
         notes[item.index] = `⚠️ ${i18nService.t('Error writing file')} ${item.path}: ${error}`
         feedback.push(`${label} ${pathRelativeToRoot(item.path)}: failed - ${error}`)
         needsContinuation = true
+        batchEditFailed = true
       }
+    }
+
+    if (state) {
+      if (batchEditFailed) state.unresolvedEdit = true
+      else if (batchEditSucceeded) state.unresolvedEdit = false
     }
   }
 
@@ -692,8 +720,42 @@ async function parseAndExecuteFileCommands(
             `RUN_COMMAND ${r.command}: opened successfully in the user's default application. No terminal output is expected - do not retry or troubleshoot.`
           )
         } else {
+          // A bare exit code invites weak models to misdiagnose a test
+          // failure as a broken environment (then they probe paths and
+          // interpreters for dozens of steps). Classify the output and
+          // spell out what kind of result this is.
+          let hint = ''
+          if (result.timedOut) {
+            // statusText already explains it is still running
+          } else if (result.exitCode !== 0) {
+            if (state) {
+              state.runFailStreak = (state.runFailStreak ?? 0) + 1
+              state.lastRunFailure = { command: r.command, exitCode: result.exitCode, timedOut: false, tail }
+              // A test command failing before any edit was applied means
+              // the failure pre-dates the change, not a regression.
+              const isTestCmd = /pytest|unittest|npm test|yarn test|pnpm test|cargo test|go test|jest|vitest|mocha/i.test(r.command)
+              if (isTestCmd && (state.editsApplied ?? 0) === 0 && !state.preEditTestFailure) {
+                state.preEditTestFailure = { command: r.command, tail }
+              }
+            }
+            if (/is not recognized|command not found|no such file or directory|cannot find|file not found/i.test(tail)) {
+              hint = '\nThe command or a path it referenced was not found - an environment/path issue, not a test result.'
+            } else if (/FAILED|AssertionError|failures=[1-9]|FAIL:|failed,|\bfailed\b/i.test(tail)) {
+              hint = '\nThe command ran correctly - this exit code means tests/assertions FAILED, not that the tool or environment is broken. Read the failing test names and assertion details in the output above.'
+              if (state?.preEditTestFailure && (state.editsApplied ?? 0) > 0) {
+                hint += ' This suite already failed BEFORE your edits - check whether the same tests were failing earlier; such pre-existing failures are not regressions from your change.'
+              }
+            } else {
+              hint = '\nThe command ran and exited non-zero - the output above is the real result. A non-zero exit does not mean the tool or environment is broken.'
+            }
+            if ((state?.runFailStreak ?? 0) >= 3) {
+              hint += '\nSeveral commands in a row have failed. Stop probing alternate paths/interpreters - re-read the outputs above and fix the cause they report.'
+            }
+          } else if (state) {
+            state.runFailStreak = 0
+          }
           feedback.push(
-            `RUN_COMMAND ${r.command} result - ${statusText}:\n${tail || '(no output)'}`
+            `RUN_COMMAND ${r.command} result - ${statusText}:\n${tail || '(no output)'}${hint}`
           )
           needsContinuation = true
           // A non-zero exit leaves the task unresolved until a command
@@ -1127,7 +1189,15 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
       // Tracks consecutive EDIT_FILE failures across loop steps so the
       // feedback can steer the model to WRITE_FILE instead of retrying the
       // same broken diff syntax forever.
-      const agentState = { editFailCount: 0, unresolvedFailure: false }
+      const agentState = {
+        editFailCount: 0,
+        unresolvedFailure: false,
+        unresolvedEdit: false,
+        runFailStreak: 0,
+        editsApplied: 0,
+        lastRunFailure: null as { command: string; exitCode: number | null; timedOut: boolean; tail: string } | null,
+        preEditTestFailure: null as { command: string; tail: string } | null,
+      }
       // One-shot guard: nudge the model at most once when it declares
       // completion while a failure is still unresolved.
       let failureNudged = false
@@ -1179,13 +1249,33 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
         // declared completion while an earlier command/edit failure is still
         // unresolved, give it one chance to fix or explicitly justify it.
         if (!needsContinuation) {
-          if (agentState.unresolvedFailure && !failureNudged) {
+          if ((agentState.unresolvedFailure || agentState.unresolvedEdit) && !failureNudged) {
             failureNudged = true
+            const last = agentState.lastRunFailure
             currentInput =
-              `Before you finish: a command or file edit earlier in this session failed. ` +
-              `If it has already been resolved or is unrelated to the user's request, ` +
-              `say so briefly in your final answer - otherwise fix it now.`
+              `Before you finish: earlier work in this session is unresolved.` +
+              (agentState.unresolvedEdit
+                ? ` A WRITE_FILE/EDIT_FILE failed and never succeeded - the file on disk may still be unmodified.`
+                : '') +
+              (last
+                ? ` Most recently "${last.command}" (${last.timedOut ? 'timed out' : `exit code ${last.exitCode}`}) printed:\n${last.tail}\n`
+                : ' ') +
+              `If it has already been resolved or is unrelated to the user's request ` +
+              `(e.g. a test that was already failing before your changes), ` +
+              `say so briefly in your final answer - otherwise fix it now. ` +
+              `Never claim edits were applied or tests pass unless they actually were/did.`
             continue
+          }
+          // The model declared completion again while a write/edit that
+          // failed was still never retried. The nudge above already gave it
+          // a chance to respond; if it now claims success, surface the
+          // discrepancy to the user instead of trusting the claim.
+          if (failureNudged && agentState.unresolvedEdit) {
+            setMessages((prev) => [...prev, {
+              role: 'assistant',
+              content: `⚠️ ${i18nService.t('A file edit failed and was never retried - the reported changes may not exist on disk. Please verify the file.')}`,
+              timestamp: Date.now(),
+            }])
           }
           break
         }
@@ -1194,6 +1284,13 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
         // the remaining step budget and how to close out the task.
         currentInput =
           `Command execution results:\n${feedback.join('\n\n')}\n\n` +
+          // Models often abandon a failed edit and keep reading files or
+          // running tests instead of retrying it. While any write/edit is
+          // still outstanding, remind every step so the failure cannot be
+          // silently dropped.
+          (agentState.unresolvedEdit
+            ? `Reminder: an earlier EDIT_FILE/WRITE_FILE failed and no file change has succeeded since - the target file is still UNCHANGED on disk. Re-emit the change now (EDIT_FILE with an exact SEARCH block, or WRITE_FILE with the full file content) before continuing.\n\n`
+            : '') +
           `(Step ${step + 1} of ${MAX_STEPS}) ` +
           `Continue with the user's request. If the work is already done, ` +
           `reply with the final answer only - no file commands.`

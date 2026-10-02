@@ -1,7 +1,6 @@
 {
   "_name": "日本語",
   "_comment": "Japanese translation table. Key = English source string shown in the UI. Value = Japanese text. If the English text is fine as-is, keep the English as the value.",
-
   "Explorer": "エクスプローラー",
   "Git": "Git",
   "Search": "検索",
@@ -12,7 +11,6 @@
   "Edit": "編集",
   "Cancel": "キャンセル",
   "Back": "戻る",
-
   "Recent Projects": "最近のプロジェクト",
   "Folder name": "フォルダ名",
   "File name": "ファイル名",
@@ -43,7 +41,6 @@
   "Name contains invalid characters": "名前に無効な文字が含まれています",
   "Failed to create project folder": "プロジェクトフォルダの作成に失敗しました",
   "Failed to create": "作成に失敗しました",
-
   "AI Chat": "AIチャット",
   "Welcome to AI Chat": "AIチャットへようこそ",
   "Ask me anything about your code": "コードについて何でも聞いてください",
@@ -56,7 +53,6 @@
   "Type your message...": "メッセージを入力...",
   "Rollback": "ロールバック",
   "Undo the last AI file changes": "直前のAIによるファイル変更を元に戻す",
-
   "Rejected write to": "書き込みを拒否しました",
   "subdirectory was not requested": "指定されていないサブディレクトリへの書き込みです",
   "Rejected edit to": "編集を拒否しました",
@@ -90,30 +86,27 @@
   "opened": "起動",
   "Cannot open target - restart Teaspoon IDE to pick up the update": "開けません - Teaspoon IDEを再起動して更新を適用してください",
   "Error running": "実行エラー",
-
   "No file selected": "ファイルが選択されていません",
   "Select a file from the Explorer to start editing": "エクスプローラーからファイルを選択してください",
   "Back to editor": "エディタに戻る",
   "Preview Markdown": "Markdownをプレビュー",
-
   "Search (regex supported)": "検索（正規表現対応）",
   "Open a project to search": "検索するにはプロジェクトを開いてください",
   "No results": "結果なし",
   "result(s)": "件",
   "files": "ファイル",
-
   "Search files by name...": "ファイル名で検索...",
   "recently opened": "最近開いたファイル",
   "No matching files": "一致するファイルがありません",
   "No recent files - type to search": "最近のファイルなし - 検索文字を入力",
-
   "Run a command in the project root (e.g. npm install, npm start, docker compose up)": "プロジェクトルートでコマンドを実行（例: npm install, npm start, docker compose up）",
   "Open a project to run commands": "コマンドを実行するにはプロジェクトを開いてください",
   "Open a project first": "先にプロジェクトを開いてください",
+  "Type a command...": "コマンドを入力...",
+  "Click to expand/collapse output": "クリックで出力を展開/折りたたみ",
   "No project open": "プロジェクトが開かれていません",
   "Clear finished processes": "終了したプロセスをクリア",
   "Clear": "クリア",
-
   "File Edit Approval": "ファイル編集の承認",
   "file(s) to edit": "ファイルを編集",
   "Collapse": "折りたたむ",
@@ -128,7 +121,6 @@
   "Commands run in a shell with your user permissions. Review them before approving.": "コマンドはあなたのユーザー権限でシェル上で実行されます。承認前に内容を確認してください。",
   "Run": "実行",
   "Command(s)": "コマンド",
-
   "Open a project to use Git": "Gitを使うにはプロジェクトを開いてください",
   "This project is not a Git repository": "このプロジェクトはGitリポジトリではありません",
   "Initialize Git": "Gitを初期化",
@@ -194,7 +186,6 @@
   "Name and email are required": "名前とメールアドレスを入力してください",
   "Save Config": "設定を保存",
   "Close": "閉じる",
-
   "Appearance": "外観",
   "Changes apply immediately and are saved automatically.": "変更は即時適用され、自動で保存されます。",
   "Language": "言語",
@@ -274,14 +265,12 @@
   "Your allotted usage limit has been reached. Please wait a moment and try again.": "あなたに割り当てられた利用上限に達しました。しばらく待ってからもう一度お試しください。",
   "The organization usage cap has been reached. It resets at the start of the next billing period, or contact your administrator.": "組織全体の利用上限に達しました。翌請求期間の開始時にリセットされます。管理者にお問い合わせください。",
   "This model is not permitted by your organization. Check the model selection in Settings.": "このモデルは組織で許可されていません。設定のモデル選択を確認してください。",
-
   "Quick Open": "クイックオープン",
   "Type a file name": "ファイル名を入力",
   "Approve file changes?": "ファイル変更を承認しますか？",
   "Approve": "承認",
   "Reject": "却下",
   "Run this command?": "このコマンドを実行しますか？",
-
   "Open a Markdown (.md) file first": "先にMarkdown（.md）ファイルを開いてください",
   "PDF export failed": "PDFエクスポートに失敗しました",
   "PDF export canceled": "PDFエクスポートをキャンセルしました",
@@ -295,15 +284,14 @@
   "Error": "エラー",
   "Failed to get response": "応答の取得に失敗しました",
   "No project is open": "プロジェクトが開かれていません",
-
   "About Teaspoon IDE": "Teaspoon IDEについて",
   "Author": "作者",
   "Web Site": "Webサイト",
   "Standalone, Privacy-First AI IDE": "スタンドアロン・プライバシーファーストのAI IDE",
   "License": "ライセンス",
-
   "Export HTML": "HTML出力",
   "Export PDF": "PDF出力",
   "Export Markdown to HTML": "MarkdownをHTMLにエクスポート",
-  "Export Markdown to PDF": "MarkdownをPDFにエクスポート"
+  "Export Markdown to PDF": "MarkdownをPDFにエクスポート",
+  "A file edit failed and was never retried - the reported changes may not exist on disk. Please verify the file.": "ファイルの編集に失敗し、再試行もされませんでした。報告された変更はディスク上に存在しない可能性があります。ファイルを確認してください。"
 }

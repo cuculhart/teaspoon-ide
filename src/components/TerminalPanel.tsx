@@ -32,7 +32,9 @@ const ProcessOutput: React.FC<{
   getBuffer: (id: string) => string
   registerTerm: (id: string, term: Terminal | null) => void
   visible: boolean
-}> = ({ proc, onKill, getBuffer, registerTerm, visible }) => {
+  expanded: boolean
+  onToggleExpand: (id: string) => void
+}> = ({ proc, onKill, getBuffer, registerTerm, visible, expanded, onToggleExpand }) => {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -90,7 +92,7 @@ const ProcessOutput: React.FC<{
   }, [proc.id])
 
   useEffect(() => {
-    if (!visible) return
+    if (!visible || !expanded) return
     const frame = requestAnimationFrame(() => {
       try {
         fitRef.current?.fit()
@@ -102,11 +104,19 @@ const ProcessOutput: React.FC<{
       } catch { }
     })
     return () => cancelAnimationFrame(frame)
-  }, [visible, proc.id])
+  }, [visible, expanded, proc.id])
 
   return (
     <div className="terminal-process">
-      <div className="terminal-process-header">
+      <div
+        className={`terminal-process-header${proc.running ? '' : ' clickable'}`}
+        onClick={() => !proc.running && onToggleExpand(proc.id)}
+        role={proc.running ? undefined : 'button'}
+        title={proc.running ? undefined : i18nService.t('Click to expand/collapse output')}
+      >
+        <span className="terminal-collapse">
+          {proc.running ? '' : expanded ? '▾' : '▸'}
+        </span>
         <span className={`terminal-status ${proc.running ? 'running' : proc.exitCode === 0 ? 'ok' : 'failed'}`}>
           {proc.running ? '●' : proc.exitCode === 0 ? '✓' : '✕'}
         </span>
@@ -120,7 +130,11 @@ const ProcessOutput: React.FC<{
           </button>
         )}
       </div>
-      <div ref={hostRef} className="terminal-host" />
+      <div
+        ref={hostRef}
+        className="terminal-host"
+        style={expanded ? undefined : { display: 'none' }}
+      />
     </div>
   )
 }
@@ -131,6 +145,13 @@ const TerminalPanel: React.FC<{ visible: boolean; height: number }> = ({ visible
   const [input, setInput] = useState('')
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
+  // Expand/collapse overrides per process id. Default: running processes
+  // and the newest process are expanded; older finished ones collapse so
+  // stale FAILED output doesn't dominate the panel.
+  const [expandOverrides, setExpandOverrides] = useState<Map<string, boolean>>(new Map())
+  const toggleExpand = (id: string, expanded: boolean) => {
+    setExpandOverrides(prev => new Map(prev).set(id, !expanded))
+  }
 
   // Raw PTY output per process - source of truth for xterm replay on remount
   const outputBuffers = useRef(new Map<string, string>())
@@ -268,11 +289,11 @@ const TerminalPanel: React.FC<{ visible: boolean; height: number }> = ({ visible
   }
 
   const clearFinished = () => {
-    setProcesses(prev => {
-      const removed = prev.filter(p => !p.running)
-      removed.forEach(p => outputBuffers.current.delete(p.id))
-      return prev.filter(p => p.running)
-    })
+    const removed = processes.filter(p => !p.running)
+    const removedIds = new Set(removed.map(p => p.id))
+    removed.forEach(p => outputBuffers.current.delete(p.id))
+    setExpandOverrides(prev => new Map([...prev].filter(([id]) => !removedIds.has(id))))
+    setProcesses(prev => prev.filter(p => p.running))
   }
 
   return (
@@ -295,16 +316,21 @@ const TerminalPanel: React.FC<{ visible: boolean; height: number }> = ({ visible
               : t('Open a project to run commands')}
           </p>
         )}
-        {processes.map(proc => (
-          <ProcessOutput
-            key={proc.id}
-            proc={proc}
-            onKill={handleKill}
-            getBuffer={getBuffer}
-            registerTerm={registerTerm}
-            visible={visible}
-          />
-        ))}
+        {processes.map((proc, i) => {
+          const expanded = expandOverrides.get(proc.id) ?? (proc.running || i === processes.length - 1)
+          return (
+            <ProcessOutput
+              key={proc.id}
+              proc={proc}
+              onKill={handleKill}
+              getBuffer={getBuffer}
+              registerTerm={registerTerm}
+              visible={visible}
+              expanded={expanded}
+              onToggleExpand={(id) => toggleExpand(id, expanded)}
+            />
+          )
+        })}
       </div>
 
       <div className="terminal-input-row">
@@ -314,7 +340,7 @@ const TerminalPanel: React.FC<{ visible: boolean; height: number }> = ({ visible
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={cwd ? 'npm install' : t('Open a project first')}
+          placeholder={cwd ? t('Type a command...') : t('Open a project first')}
           disabled={!cwd}
           spellCheck={false}
         />

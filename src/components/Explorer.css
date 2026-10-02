@@ -240,6 +240,7 @@
 
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   justify-content: flex-end;
 }
@@ -252,6 +253,7 @@
   padding: 6px 12px;
   font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .dialog-actions button:last-child {
