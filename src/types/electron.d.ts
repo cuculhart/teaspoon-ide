@@ -5,6 +5,12 @@ export interface ElectronAPI {
   createDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>
   deleteFile: (rootPath: string, filePath: string) => Promise<{ success: boolean; error?: string }>
   selectFolder: () => Promise<{ success: boolean; folderPath?: string; canceled?: boolean; error?: string }>
+  getDocumentsPath: () => Promise<{ success: boolean; path?: string; error?: string }>
+  chatHistoryList: () => Promise<{ success: boolean; conversations?: Array<{ id: string; title: string; projectPath: string | null; createdAt: number; updatedAt: number; messageCount: number }>; error?: string }>
+  chatHistoryGet: (id: string) => Promise<{ success: boolean; conversation?: unknown; error?: string }>
+  chatHistoryPut: (id: string, json: string) => Promise<{ success: boolean; error?: string }>
+  chatHistoryDelete: (id: string) => Promise<{ success: boolean; error?: string }>
+  chatHistoryClear: () => Promise<{ success: boolean; error?: string }>
   searchFiles: (rootPath: string, pattern: string) => Promise<{ success: boolean; matches?: Array<{ file: string; line: number; text: string }>; truncated?: boolean; searchedFiles?: number; error?: string }>
   findFiles: (rootPath: string, pattern: string, maxResults?: number) => Promise<{ success: boolean; files?: string[]; truncated?: boolean; totalFiles?: number; error?: string }>
   watchProject: (rootPath: string) => Promise<{ success: boolean; error?: string }>

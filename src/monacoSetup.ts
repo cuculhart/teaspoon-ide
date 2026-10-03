@@ -181,6 +181,37 @@ monaco.editor.defineTheme('teaspoon-heritage', {
   },
 })
 
+// Rich Wine editor theme - wine-dark bg, silvery text, copper keywords
+// and golds; mauve functions keep red out of the code ([data-theme='wine'])
+monaco.editor.defineTheme('teaspoon-wine', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [
+    { token: 'keyword', foreground: 'e07b3f' },
+    { token: 'string', foreground: 'f0a85d' },
+    { token: 'number', foreground: 'f5ca93' },
+    { token: 'comment', foreground: '5e3b43', fontStyle: 'italic' },
+    { token: 'type', foreground: 'e2e8f0' },
+    { token: 'identifier.function', foreground: 'b48ead' },
+  ],
+  colors: {
+    'editor.background': '#1e0a0d',
+    'editor.foreground': '#cbd1d6',
+    'editorLineNumber.foreground': '#6e4a52',
+    'editorLineNumber.activeForeground': '#8a6268',
+    'editor.lineHighlightBackground': '#261114',
+    'editor.selectionBackground': '#4d2430',
+    'editor.inactiveSelectionBackground': '#331a1e',
+    'editorCursor.foreground': '#cbd1d6',
+    'editorWhitespace.foreground': '#4a2228',
+    'editorWidget.background': '#261114',
+    'editorWidget.border': '#4a2228',
+    'minimap.background': '#261114',
+    'diffEditor.insertedTextBackground': '#7fa06a33',
+    'diffEditor.removedTextBackground': '#c96a5a33',
+  },
+})
+
 // Resolved app theme -> Monaco theme name. Custom themes are registered
 // above; light/dark fall back to Monaco's built-ins.
 export const MONACO_THEME: Record<string, string> = {
@@ -191,4 +222,5 @@ export const MONACO_THEME: Record<string, string> = {
   console: 'teaspoon-console',
   walnut: 'teaspoon-walnut',
   heritage: 'teaspoon-heritage',
+  wine: 'teaspoon-wine',
 }

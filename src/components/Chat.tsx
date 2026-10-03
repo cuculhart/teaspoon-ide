@@ -3,11 +3,14 @@ import { llmService } from '../services/llmService'
 import { configService } from '../services/configService'
 import { managedService } from '../services/managedService'
 import { projectService } from '../services/projectService'
-import { chatHistoryService } from '../services/chatHistoryService'
+import { contextService } from '../services/contextService'
+import { chatHistoryService, ConversationMeta } from '../services/chatHistoryService'
 import FileEditApproval, { FileEdit } from './FileEditApproval'
 import CommandApproval from './CommandApproval'
+import CreateProjectModal from './CreateProjectModal'
 import { i18nService, useT } from '../services/i18nService'
 import { hostOpenCommand } from '../services/agentPrompt'
+import { renderMarkdown, MARKDOWN_CSS } from '../utils/markdown'
 import './Chat.css'
 
 interface Message {
@@ -34,35 +37,72 @@ const stripNoteLines = (text: string) =>
     .filter((l) => !/^\s*(▶️|⚠️|📖|🔍|⏭️|↩️|✅)/u.test(l))
     .join('\n')
 
+// Recent messages sent to the model verbatim; older turns are folded
+// into the rolling contextSummary instead, keeping model input bounded.
+const HISTORY_WINDOW = 20
+// Compact when this many stored messages sit past the summarized range
+const SUMMARY_TRIGGER = 30
+const SUMMARY_TARGET_CHARS = 1500
+
+const formatConvTime = (ts: number) => {
+  const d = new Date(ts)
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString()
+}
+
 interface ChatProps {
   onOpenSettings: () => void
+  chatFocus?: boolean
+  onToggleFocus?: () => void
+}
+
+// Resolve "." and ".." segments in a "/"-separated path so traversal
+// cannot hide from the root check. Segments that would climb above the
+// path's own root stay as ".." - they fail the root check anyway.
+function normalizePathSegments(p: string): string {
+  const leading = p.startsWith('\\\\') ? '//' : p.startsWith('/') ? '/' : ''
+  const out: string[] = []
+  for (const part of p.replace(/\\/g, '/').split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') {
+      if (out.length > 0 && out[out.length - 1] !== '..') out.pop()
+      else out.push('..')
+    } else {
+      out.push(part)
+    }
+  }
+  return leading + out.join('/')
 }
 
 // Resolve a path from the AI against the current project root.
-// Relative paths are resolved under the project root; absolute paths
-// outside the project root are rejected for safety.
+// All file access requires an open project; anything resolving outside
+// the root is rejected.
 function resolveFilePath(inputPath: string): { path?: string; error?: string } {
   const trimmed = inputPath.trim().replace(/^["']|["']$/g, '')
-  const isAbsolute = /^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('\\\\') || trimmed.startsWith('/')
 
   const project = projectService.getCurrentProject()
   if (!project || !project.isOpen) {
-    return isAbsolute
-      ? { path: trimmed }
-      : { error: 'No project is open; cannot resolve a relative path.' }
+    // Absolute paths used to pass through here - a bare READ_FILE could
+    // silently pull any file on disk (its contents go straight back to
+    // the model). Writes reach this point only after the create-project
+    // prompt opens a folder, so denying does not block the write flow.
+    return { error: 'No project is open - file operations are unavailable.' }
   }
 
   const root = project.rootPath.replace(/\\/g, '/').replace(/\/+$/, '')
-
-  if (!isAbsolute) {
-    return { path: `${root}/${trimmed.replace(/\\/g, '/').replace(/^\/+/, '')}` }
-  }
-
-  const normalized = trimmed.replace(/\\/g, '/')
-  if (!normalized.toLowerCase().startsWith(root.toLowerCase() + '/')) {
+  const isAbsolute = /^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('\\\\') || trimmed.startsWith('/')
+  // Join and normalize first: "../x" must not survive as a string that
+  // looks root-relative while the OS resolves it outside the root.
+  const normalized = normalizePathSegments(isAbsolute ? trimmed : `${root}/${trimmed}`)
+  // The root itself is allowed ("LIST_FILES: ." lists the project
+  // root); anything resolving above it is rejected.
+  const lowerRoot = root.toLowerCase()
+  const lowerPath = normalized.toLowerCase()
+  if (lowerPath !== lowerRoot && !lowerPath.startsWith(lowerRoot + '/')) {
     return { error: `Path "${trimmed}" is outside the project root.` }
   }
-  return { path: trimmed }
+  return { path: normalized }
 }
 
 function escapeRegExp(s: string): string {
@@ -172,6 +212,34 @@ function findFileCommands(response: string): FileCommand[] {
   const commands: FileCommand[] = []
   let match
 
+  // Fenced-div style: some models emit the command grammar with markdown
+  // ":::" fences (:::WRITE_FILE: path ... :::) instead of // comment markers.
+  const colonWriteRegex = /^[ \t]*:::[ \t]*WRITE_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n([\s\S]*?)^[ \t]*:::[ \t]*$/gm
+  while ((match = colonWriteRegex.exec(response)) !== null) {
+    const unwrapped = unwrapFenceBody(match[2])
+    commands.push({ type: 'write', arg: cleanPathArg(match[1].trim()), body: unwrapped?.content ?? match[2], start: match.index, end: match.index + match[0].length })
+  }
+
+  const colonEditRegex = /^[ \t]*:::[ \t]*EDIT_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n([\s\S]*?)^[ \t]*:::[ \t]*$/gm
+  while ((match = colonEditRegex.exec(response)) !== null) {
+    commands.push({ type: 'edit', arg: cleanPathArg(match[1].trim()), body: match[2], start: match.index, end: match.index + match[0].length })
+  }
+
+  const COLON_LINE_TYPES: Record<string, FileCommand['type']> = {
+    READ_FILE: 'read', LIST_FILES: 'list', RUN_COMMAND: 'run', GREP: 'grep', FIND_FILES: 'find',
+  }
+  const colonLineRegex = /^[ \t]*:::[ \t]*(READ_FILE|LIST_FILES|RUN_COMMAND|GREP|FIND_FILES)[ \t]*:?[ \t]*([^\n]*?)[ \t]*$/gm
+  while ((match = colonLineRegex.exec(response)) !== null) {
+    const type = COLON_LINE_TYPES[match[1]]
+    const raw = match[2].trim()
+    commands.push({
+      type,
+      arg: type === 'run' ? cleanRunCommandArg(raw) : type === 'grep' ? raw : cleanPathArg(raw),
+      start: match.index,
+      end: match.index + match[0].length,
+    })
+  }
+
   // Small models sometimes drop the colon ("// READ_FILE x") or close blocks
   // with another language's comment marker ("# END_WRITE_FILE") - tolerate both.
   const writeFileRegex = /\/\/ WRITE_FILE[ \t]*:?[ \t]*([^\n]+?)\n([\s\S]*?)(?:\/\/|#|--)[ \t]*END_WRITE_FILE/g
@@ -183,7 +251,7 @@ function findFileCommands(response: string): FileCommand[] {
   // Salvage: a WRITE_FILE opener whose body is a code fence but that never
   // got "// END_WRITE_FILE" - small models treat the closing ``` as the
   // terminator. Only openers not already inside a parsed command are tried.
-  const writeOpenRegex = /\/\/ WRITE_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n/g
+  const writeOpenRegex = /(?:(?:\/\/)|:::)[ \t]*WRITE_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n/g
   while ((match = writeOpenRegex.exec(response)) !== null) {
     const start = match.index
     if (commands.some(c => start >= c.start && start < c.end)) continue
@@ -200,7 +268,7 @@ function findFileCommands(response: string): FileCommand[] {
   // Salvage: an EDIT_FILE opener never closed with "// END_EDIT_FILE", but
   // the body ends with a complete >>>>>>> REPLACE delimiter - the model
   // forgot the terminator. Take the body up to the last delimiter line.
-  const editOpenRegex = /\/\/ EDIT_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n/g
+  const editOpenRegex = /(?:(?:\/\/)|:::)[ \t]*EDIT_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n/g
   while ((match = editOpenRegex.exec(response)) !== null) {
     const start = match.index
     if (commands.some(c => start >= c.start && start < c.end)) continue
@@ -318,6 +386,7 @@ async function parseAndExecuteFileCommands(
   requestCommandApproval: (commands: string[]) => Promise<string[] | null>,
   runCommandAndWait: (command: string) => Promise<RunResult>,
   userText: string,
+  requestProject?: () => Promise<string | null>,
   state?: {
     editFailCount: number
     unresolvedFailure: boolean
@@ -352,10 +421,10 @@ async function parseAndExecuteFileCommands(
   // block then parses as nothing and would be silently shown as raw text -
   // report it back so the model can re-emit a complete block.
   const malformedBlocks: string[] = []
-  if (/\/\/ WRITE_FILE\b/.test(scanText) && !commands.some(c => c.type === 'write')) {
+  if (/(?:\/\/|:::)[ \t]*WRITE_FILE\b/.test(scanText) && !commands.some(c => c.type === 'write')) {
     malformedBlocks.push('WRITE_FILE')
   }
-  if (/\/\/ EDIT_FILE\b/.test(scanText) && !commands.some(c => c.type === 'edit')) {
+  if (/(?:\/\/|:::)[ \t]*EDIT_FILE\b/.test(scanText) && !commands.some(c => c.type === 'edit')) {
     malformedBlocks.push('EDIT_FILE')
   }
 
@@ -367,8 +436,8 @@ async function parseAndExecuteFileCommands(
     'GREP', 'FIND_FILES', 'END_WRITE_FILE', 'END_EDIT_FILE',
   ])
   const inventedCmds = [...new Set(
-    (scanText.match(/^\/\/[ \t]*[A-Z][A-Z0-9_.-]*(?=[ \t:]|$)/gm) ?? [])
-      .map(m => m.replace(/^\/\/[ \t]*/, '').replace(/[ \t:].*$/, '').trim())
+    (scanText.match(/^(?:\/\/|:::)[ \t]*[A-Z][A-Z0-9_.-]*(?=[ \t:]|$)/gm) ?? [])
+      .map(m => m.replace(/^(?:\/\/|:::)[ \t]*/, '').replace(/[ \t:].*$/, '').trim())
       .filter(name => (name.includes('_') || name.includes('.'))
         && !KNOWN_COMMAND_NAMES.has(name)
         // "// END_READ_FILE"-style invented terminators are harmless - the
@@ -397,6 +466,16 @@ async function parseAndExecuteFileCommands(
   const feedback: string[] = []
   const checkpoint: { path: string; prevContent: string; existed: boolean }[] = []
   let needsContinuation = false
+
+  // No project open but the model wants to write files: offer to create
+  // a project folder instead of rejecting every command. When the user
+  // creates one, path resolution below picks it up via projectService.
+  if (requestProject && !projectService.getCurrentProject()?.isOpen
+    && commands.some(c => c.type === 'write' || c.type === 'edit')) {
+    if (await requestProject()) {
+      feedback.push('A project folder was created and opened - file paths are relative to its root.')
+    }
+  }
 
   if (malformedBlocks.length > 0) {
     feedback.push(
@@ -511,7 +590,15 @@ async function parseAndExecuteFileCommands(
       }
     } else if (cmd.type === 'read') {
       needsContinuation = true
-      const filePath = resolved.path || cmd.arg
+      // Never fall back to cmd.arg on resolution failure - that would
+      // read relative to the app's cwd (or anywhere via ../) instead
+      // of rejecting the read.
+      if (resolved.error || !resolved.path) {
+        notes[i] = `⚠️ ${i18nService.t('Error reading file')} ${cmd.arg}: ${resolved.error}`
+        feedback.push(`READ_FILE ${cmd.arg}: failed - ${resolved.error}`)
+        continue
+      }
+      const filePath = resolved.path
       try {
         const result = await window.electronAPI.readFile(filePath)
         if (result.success) {
@@ -530,7 +617,12 @@ async function parseAndExecuteFileCommands(
       }
     } else {
       needsContinuation = true
-      const directoryPath = resolved.path || cmd.arg
+      if (resolved.error || !resolved.path) {
+        notes[i] = `⚠️ ${i18nService.t('Error listing files')} ${cmd.arg}: ${resolved.error}`
+        feedback.push(`LIST_FILES ${cmd.arg}: failed - ${resolved.error}`)
+        continue
+      }
+      const directoryPath = resolved.path
       try {
         const result = await window.electronAPI.readDirectory(directoryPath)
         if (result.success && result.items) {
@@ -803,15 +895,27 @@ async function parseAndExecuteFileCommands(
 const ANSI_REGEX = /[\u001b\u009b][\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g
 const stripAnsi = (s: string) => s.replace(ANSI_REGEX, '')
 
-const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
+const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus }) => {
   const t = useT()
-  // Chat is persisted per project (1:1). The component remounts on project
-  // change via key in App.tsx, so mount-time load is sufficient.
+  // Chat is persisted per conversation (file-backed). The component
+  // remounts on project change via key in App.tsx, so mount-time load
+  // is sufficient.
   const projectPath = projectService.getCurrentProject()?.rootPath
-  const [messages, setMessages] = useState<Message[]>(() => {
-    if (!projectPath) return []
-    return chatHistoryService.getConversation(projectPath)?.messages ?? []
-  })
+  const [messages, setMessages] = useState<Message[]>([])
+  // Active conversation identity. convIdRef mirrors the state so async
+  // paths (persistence, compaction) always see the latest id.
+  const [convId, setConvIdState] = useState<string | null>(null)
+  const convIdRef = useRef<string | null>(null)
+  const setConvId = (id: string | null) => {
+    convIdRef.current = id
+    setConvIdState(id)
+  }
+  const convCreatedAtRef = useRef(0)
+  const contextSummaryRef = useRef('')
+  const summarizedCountRef = useRef(0)
+  const messagesRef = useRef<Message[]>([])
+  const [convList, setConvList] = useState<ConversationMeta[]>([])
+  const [convDeleteId, setConvDeleteId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isConfigured, setIsConfigured] = useState(false)
@@ -825,6 +929,11 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
   const approvalResolverRef = useRef<((edits: FileEdit[] | null) => void) | null>(null)
   const [pendingCommands, setPendingCommands] = useState<string[] | null>(null)
   const commandResolverRef = useRef<((commands: string[] | null) => void) | null>(null)
+  // "No project open" prompt for AI file writes - same resolver pattern
+  // as the approval dialogs. Shown at most once per user turn.
+  const [showProjectModal, setShowProjectModal] = useState(false)
+  const projectResolverRef = useRef<((rootPath: string | null) => void) | null>(null)
+  const projectPromptShownRef = useRef(false)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
   // Live streaming bubble (separate from the committed message list)
@@ -899,20 +1008,111 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
     setPendingCommands(null)
   }
 
+  // Pause the agent loop until the user creates a project folder (or
+  // declines). Resolves with the new project root, or null on cancel.
+  const requestProject = (): Promise<string | null> => {
+    if (projectPromptShownRef.current) return Promise.resolve(null)
+    projectPromptShownRef.current = true
+    return new Promise((resolve) => {
+      projectResolverRef.current = resolve
+      setShowProjectModal(true)
+    })
+  }
+
+  const resolveProject = (rootPath: string | null) => {
+    // A project materialized from this chat's file writes - bind the
+    // conversation to it so it lists under that project from now on.
+    if (rootPath && convIdRef.current) {
+      void chatHistoryService.setProjectPath(convIdRef.current, rootPath).then(refreshConvList)
+    }
+    projectResolverRef.current?.(rootPath)
+    projectResolverRef.current = null
+    setShowProjectModal(false)
+  }
+
+  // Reset the in-memory conversation identity without touching saved
+  // files - used by "New chat" so the old conversation stays listed.
+  const resetConvState = () => {
+    setConvId(null)
+    convCreatedAtRef.current = 0
+    contextSummaryRef.current = ''
+    summarizedCountRef.current = 0
+    if (!projectService.getCurrentProject()?.isOpen) configService.setLastNoProjectConv(null)
+  }
+
   const clearCurrentChat = () => {
     abortController?.abort()
     resolveApproval(null)
     resolveCommandApproval(null)
+    resolveProject(null)
     streamedRef.current = ''
     setStreamingText(null)
     stickToBottomRef.current = true
     setMessages([])
-    if (projectPath) chatHistoryService.clearConversation(projectPath)
+    messagesRef.current = []
+    if (convIdRef.current) void chatHistoryService.delete(convIdRef.current).then(refreshConvList)
+    resetConvState()
   }
 
   const handleClearChat = () => {
     clearCurrentChat()
     setConfirmClearChat(false)
+  }
+
+  const handleNewChat = () => {
+    if (isLoading) return
+    resolveApproval(null)
+    resolveCommandApproval(null)
+    resolveProject(null)
+    streamedRef.current = ''
+    setStreamingText(null)
+    stickToBottomRef.current = true
+    setMessages([])
+    messagesRef.current = []
+    resetConvState()
+  }
+
+  // Chat list (focus mode): load a conversation in place. Opening a
+  // bound project goes through projectService + the project-opened
+  // event so the chat is NOT remounted (unlike Explorer's open path).
+  const handleSelectConversation = async (meta: ConversationMeta) => {
+    if (isLoading || meta.id === convIdRef.current) return
+    const conv = await chatHistoryService.getById(meta.id)
+    if (!conv) return
+    if (meta.projectPath) {
+      try {
+        await projectService.openProject(meta.projectPath)
+        configService.setLastProjectPath(meta.projectPath)
+      } catch { /* folder may be gone - still load the chat */ }
+    } else {
+      window.electronAPI?.unwatchProject?.()
+      projectService.closeProject()
+      contextService.clearContext()
+      configService.setLastProjectPath('')
+      configService.setLastOpenFile('')
+    }
+    window.dispatchEvent(new CustomEvent('teaspoon:project-opened', { detail: { rootPath: meta.projectPath } }))
+    setConvId(conv.id)
+    convCreatedAtRef.current = conv.createdAt
+    contextSummaryRef.current = conv.contextSummary ?? ''
+    summarizedCountRef.current = conv.summarizedCount ?? 0
+    messagesRef.current = conv.messages
+    setMessages(conv.messages)
+    stickToBottomRef.current = true
+    if (!meta.projectPath) configService.setLastNoProjectConv(meta.id)
+    setConvDeleteId(null)
+  }
+
+  const handleDeleteConversation = async (id: string) => {
+    await chatHistoryService.delete(id)
+    setConvDeleteId(null)
+    if (id === convIdRef.current) {
+      // The on-screen conversation vanished - start a fresh chat
+      resetConvState()
+      setMessages([])
+      messagesRef.current = []
+    }
+    await refreshConvList()
   }
 
   useEffect(() => {
@@ -1030,12 +1230,95 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
     return () => cancelAnimationFrame(frame)
   }, [messages, streamingText, isLoading])
 
+  const refreshConvList = async () => {
+    setConvList(await chatHistoryService.listConversations())
+  }
+
+  // Persist the current conversation (file-backed, writes serialized
+  // in the service so index updates cannot interleave).
+  const persistConversation = async () => {
+    const msgs = messagesRef.current
+    if (msgs.length === 0) return
+    const project = projectService.getCurrentProject()
+    const id = convIdRef.current ?? chatHistoryService.createId()
+    if (!convIdRef.current) setConvId(id)
+    await chatHistoryService.save({
+      id,
+      title: chatHistoryService.deriveTitle(msgs),
+      projectPath: project?.isOpen ? project.rootPath : null,
+      createdAt: convCreatedAtRef.current || (convCreatedAtRef.current = msgs[0]?.timestamp ?? Date.now()),
+      updatedAt: Date.now(),
+      summarizedCount: summarizedCountRef.current,
+      contextSummary: contextSummaryRef.current,
+      messages: msgs,
+    })
+    await refreshConvList()
+    if (!project?.isOpen) configService.setLastNoProjectConv(id)
+  }
+
+  // Load the active conversation once on mount: the project's latest
+  // conversation, or the last project-less chat when nothing is open.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const conv = projectPath
+        ? await chatHistoryService.getByProject(projectPath)
+        : await chatHistoryService.getById(configService.getLastNoProjectConv())
+      if (cancelled) return
+      if (conv) {
+        setConvId(conv.id)
+        convCreatedAtRef.current = conv.createdAt
+        contextSummaryRef.current = conv.contextSummary ?? ''
+        summarizedCountRef.current = conv.summarizedCount ?? 0
+        if (conv.messages.length) {
+          messagesRef.current = conv.messages
+          setMessages(conv.messages)
+        }
+      }
+      await refreshConvList()
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Persist conversation whenever it changes
   useEffect(() => {
-    if (projectPath && messages.length > 0) {
-      chatHistoryService.saveConversation(projectPath, messages)
-    }
-  }, [messages, projectPath])
+    messagesRef.current = messages
+    if (messages.length === 0) return
+    void persistConversation()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages])
+
+  // Fold older turns into the rolling summary once the stored
+  // conversation outgrows the history window. Runs after a completed
+  // turn (fire-and-forget); failures keep the old summary for next time.
+  const compactHistory = async (llmPin: { provider?: string; model?: string }, signal: AbortSignal) => {
+    const all = messagesRef.current
+    const done = summarizedCountRef.current
+    if (all.length - done <= SUMMARY_TRIGGER) return
+    const end = Math.max(done, all.length - HISTORY_WINDOW)
+    const excerpt = all.slice(done, end)
+    if (excerpt.length === 0) return
+    const transcript = excerpt
+      .map((m) => `${m.role}: ${m.role === 'assistant' ? stripNoteLines(m.content) : m.content}`)
+      .join('\n')
+    const prior = contextSummaryRef.current
+    const prompt =
+      `Summarize this chat excerpt into a compact context note under ` +
+      `${SUMMARY_TARGET_CHARS} characters, in the same language as the ` +
+      `conversation. Preserve file paths, decisions made, and unfinished ` +
+      `tasks.` +
+      (prior ? `\n\nMerge with the previous summary:\n${prior}` : '') +
+      `\n\nExcerpt:\n${transcript}`
+    try {
+      const summary = await llmService.sendMessage(prompt, undefined, [], () => {}, signal, llmPin)
+      const trimmed = summary.trim()
+      if (!trimmed || signal.aborted) return
+      contextSummaryRef.current = trimmed.slice(0, SUMMARY_TARGET_CHARS)
+      summarizedCountRef.current = end
+      await persistConversation()
+    } catch { /* keep the old summary - retried after the next turn */ }
+  }
 
   useEffect(() => {
     const refreshLlm = () => {
@@ -1167,7 +1450,35 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
         console.warn('Failed to get project context:', projectError)
         context = undefined
       }
-      
+
+      // Tell the model when the IDE panes are hidden so questions like
+      // "where did the sidebar go" get the right answer (chat focus).
+      if (chatFocus) {
+        const focusNote =
+          'UI state: chat focus is ON - only the chat panel is visible (sidebar, editor, and terminal are hidden). ' +
+          'The user restores the panes with the ◫ button in the chat header or View > Toggle Chat Focus (Ctrl+Shift+B).'
+        context = context ? `${context}\n\n${focusNote}` : focusNote
+      }
+
+      // Turns beyond the history window are carried as a compact
+      // rolling summary instead of verbatim messages (compactHistory).
+      if (contextSummaryRef.current) {
+        const summaryNote = `Summary of earlier conversation in this chat:\n${contextSummaryRef.current}`
+        context = context ? `${context}\n\n${summaryNote}` : summaryNote
+      }
+
+      // When the window drops earlier turns, say so - otherwise the model
+      // treats the first visible message as the conversation start and
+      // confidently answers questions about history it cannot see.
+      if (historyBase.length > HISTORY_WINDOW) {
+        const truncationNote =
+          `Note: this conversation is long - only the last ${HISTORY_WINDOW} messages are shown verbatim` +
+          (contextSummaryRef.current
+            ? ', and earlier turns are covered by the summary above.'
+            : ', so the first message you see may not be the start of the conversation.')
+        context = context ? `${context}\n\n${truncationNote}` : truncationNote
+      }
+
       // Agent loop: the AI may issue file commands (READ_FILE / LIST_FILES)
       // whose results it needs before it can continue. Execute the commands,
       // feed the results back to the model, and repeat until the model
@@ -1177,13 +1488,17 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
       // are UI decoration, and small models imitate them as fake output.
       // Legacy messages saved before rawContent existed get their note
       // lines stripped instead.
-      const historyForRequest: Message[] = [
-        ...historyBase.map((m) => ({
+      const historyForRequest: Message[] =
+        // Only the recent window goes verbatim - older turns arrive via
+        // the contextSummary injected into `context` above. The current
+        // user message is NOT included here: sendMessage already appends
+        // it as the request prompt, and listing it in history too would
+        // send it twice. It is pushed after the first call so later
+        // agent-loop steps still see the original turn.
+        historyBase.slice(-HISTORY_WINDOW).map((m) => ({
           ...m,
           content: m.rawContent ?? (m.role === 'assistant' ? stripNoteLines(m.content) : m.content),
-        })),
-        userMessage,
-      ]
+        }))
       let currentInput = userMessage.content
       let lastStepRanCommands = false
       // Tracks consecutive EDIT_FILE failures across loop steps so the
@@ -1201,6 +1516,8 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
       // One-shot guard: nudge the model at most once when it declares
       // completion while a failure is still unresolved.
       let failureNudged = false
+      // The create-project prompt is offered at most once per user turn
+      projectPromptShownRef.current = false
 
       // Streaming (Ollama path): deltas accumulate into a live bubble
       // rendered below the message list. On completion the parsed display
@@ -1221,7 +1538,10 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
         const callStart = performance.now()
         const response = await llmService.sendMessage(currentInput, context, historyForRequest, onDelta, controller.signal, llmPin)
         const latencyMs = Math.round(performance.now() - callStart)
-        const { display, feedback, needsContinuation, checkpoint } = await parseAndExecuteFileCommands(response, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, agentState)
+        // The original user turn went out as this request's prompt; add
+        // it to the running history now so later agent-loop steps see it.
+        if (step === 0) historyForRequest.push(userMessage)
+        const { display, feedback, needsContinuation, checkpoint } = await parseAndExecuteFileCommands(response, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, requestProject, agentState)
         if (controller.signal.aborted) break
         setStreamingText(null)
         if (checkpoint && checkpoint.length > 0) {
@@ -1309,7 +1629,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
         const summaryStart = performance.now()
         const summary = await llmService.sendMessage(summaryInput, context, historyForRequest, onSummaryDelta, controller.signal, llmPin)
         const summaryLatencyMs = Math.round(performance.now() - summaryStart)
-        const { display: summaryDisplay } = await parseAndExecuteFileCommands(summary, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content)
+        const { display: summaryDisplay } = await parseAndExecuteFileCommands(summary, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, requestProject)
         if (controller.signal.aborted) return
         setStreamingText(null)
         const summaryText = summaryDisplay || getSummaryStreamed()
@@ -1324,7 +1644,13 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
           }])
         }
       }
-      
+
+      // Compact older history into the rolling summary - keeps model
+      // input bounded on long chats (fire-and-forget, Settings-gated).
+      if (configService.getAutoSummarize()) {
+        void compactHistory(llmPin, controller.signal)
+      }
+
     } catch (error) {
       console.error('Error sending message:', error)
       // User-cancelled: keep whatever was streamed so far, no error message
@@ -1356,6 +1682,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
     // If approval dialogs are open, treat cancel as reject-all
     resolveApproval(null)
     resolveCommandApproval(null)
+    resolveProject(null)
     if (abortController) {
       abortController.abort()
       setAbortController(null)
@@ -1378,6 +1705,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
 
   return (
     <div className="chat">
+      <style>{MARKDOWN_CSS}</style>
       <div className="chat-header">
         <div className="chat-title">
           <h3>{t('AI Chat')}</h3>
@@ -1424,11 +1752,75 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
               {t('Clear')}
             </button>
           )}
+          {onToggleFocus && (
+            <button
+              className={`settings-button ${chatFocus ? 'active' : ''}`}
+              onClick={onToggleFocus}
+              title={chatFocus ? t('Exit chat focus') : t('Chat focus')}
+            >
+              {chatFocus ? '◫' : '⛶'}
+            </button>
+          )}
           <button className="settings-button" onClick={onOpenSettings} title={t('Settings')}>
             ⚙️
           </button>
         </div>
       </div>
+      <div className="chat-body">
+        {chatFocus && (
+          <div className="chat-list-rail">
+            <div className="chat-list-header">
+              <span>{t('Chats')}</span>
+              <button className="chat-list-new" onClick={handleNewChat} title={t('New chat')}>
+                +
+              </button>
+            </div>
+            <div className="chat-list-items">
+              {convList.length === 0 && (
+                <div className="chat-list-empty">{t('No chat history yet')}</div>
+              )}
+              {convList.map((c) => (
+                <div
+                  key={c.id}
+                  className={`chat-list-item${c.id === convId ? ' active' : ''}`}
+                  onClick={() => void handleSelectConversation(c)}
+                >
+                  <div className="chat-list-item-text">
+                    <div className="chat-list-item-title">{c.title || t('Untitled chat')}</div>
+                    <div className="chat-list-item-meta">
+                      {(c.projectPath ? c.projectPath.split(/[\\/]/).pop() : t('No project')) +
+                        ' · ' +
+                        formatConvTime(c.updatedAt)}
+                    </div>
+                  </div>
+                  {convDeleteId === c.id ? (
+                    <button
+                      className="chat-list-delete confirm"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleDeleteConversation(c.id)
+                      }}
+                    >
+                      {t('Delete?')}
+                    </button>
+                  ) : (
+                    <button
+                      className="chat-list-delete"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setConvDeleteId(c.id)
+                      }}
+                      title={t('Delete this chat')}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="chat-main">
       <div className="chat-messages" ref={messagesContainerRef} onScroll={handleMessagesScroll}>
         {messages.length === 0 && (
           <div className="chat-welcome">
@@ -1459,7 +1851,11 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
                   </button>
                 )}
               </div>
-              <div className="message-text">{message.content}</div>
+              <div className="message-text">
+                {message.role === 'assistant'
+                  ? <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+                  : message.content}
+              </div>
               {message.latencyMs != null && (
                 <div className="message-latency">({formatLatency(message.latencyMs)})</div>
               )}
@@ -1509,6 +1905,8 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
           {isConfigured ? t('Send') : t('Configure API Key')}
         </button>
       </div>
+        </div>
+      </div>
       {pendingEdits && pendingEdits.length > 0 && (
         <FileEditApproval
           edits={pendingEdits}
@@ -1523,6 +1921,12 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings }) => {
           onApprove={resolveCommandApproval}
           onReject={() => resolveCommandApproval(null)}
           onRejectOne={handleRejectOneCommand}
+        />
+      )}
+      {showProjectModal && (
+        <CreateProjectModal
+          onCreated={resolveProject}
+          onCancel={() => resolveProject(null)}
         />
       )}
     </div>

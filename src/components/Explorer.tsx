@@ -442,6 +442,43 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // A project opened or closed outside the Explorer (e.g. the chat's
+  // create-project prompt, or picking a project-less conversation from
+  // the chat list). Refresh the tree/watcher here instead of going
+  // through openProjectByPath/handleCloseProject - their onProjectChange
+  // calls would remount the chat and orphan an in-flight agent loop.
+  useEffect(() => {
+    const onExternalOpen = async (event: Event) => {
+      const rootPath = (event as CustomEvent).detail?.rootPath
+      const project = projectService.getCurrentProject()
+      if (!project?.isOpen) {
+        // Closed outside the Explorer - clear the tree like
+        // handleCloseProject does, minus the onProjectChange remount.
+        window.electronAPI?.unwatchProject?.()
+        setRootItems([])
+        setChildrenMap(new Map())
+        setExpandedDirs(new Set())
+        setProjectName('')
+        setSelectedFiles(new Set())
+        setContextStats(null)
+        setNewItem(null)
+        setNewItemName('')
+        setOpenError(null)
+        return
+      }
+      if (!rootPath || project.rootPath !== rootPath) return
+      setProjectName(project.name)
+      setOpenError(null)
+      setRecentProjects(configService.getRecentProjects())
+      await loadProjectFiles(rootPath)
+      window.electronAPI?.watchProject?.(rootPath)
+      await buildAutomaticContext()
+    }
+    window.addEventListener('teaspoon:project-opened', onExternalOpen)
+    return () => window.removeEventListener('teaspoon:project-opened', onExternalOpen)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Refresh the stats when the user changes Settings > AI Context
   useEffect(() => {
     const refresh = () => {

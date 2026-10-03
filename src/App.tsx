@@ -43,6 +43,13 @@ const Splitter: React.FC<{
   return <div className={`splitter splitter-${orientation}`} onMouseDown={handleMouseDown} />
 }
 
+// Menu actions that need the IDE panes visible - they exit chat focus first
+const IDE_ACTIONS = new Set([
+  'open-project', 'new-project', 'clone-project', 'open-project-folder',
+  'close-project', 'new-file', 'new-folder', 'quick-open',
+  'export-pdf', 'export-html', 'toggle-terminal',
+])
+
 function App() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string>('')
@@ -56,6 +63,15 @@ function App() {
   const fileHistoryRef = useRef<string[]>([]) // absolute paths, most recent first
   const managedLockedRef = useRef(managedLocked)
   managedLockedRef.current = managedLocked
+  const [chatFocus, setChatFocus] = useState(configService.getChatFocus())
+  const chatFocusRef = useRef(chatFocus)
+  chatFocusRef.current = chatFocus
+
+  // Chat focus mode: hide the IDE panes, chat takes the whole window
+  const setChatFocusMode = (on: boolean) => {
+    setChatFocus(on)
+    configService.setChatFocus(on)
+  }
 
   // Managed mode: re-evaluate the lock when the session changes or expires
   useEffect(() => {
@@ -197,6 +213,13 @@ function App() {
       // While the sign-in gate is up, menu accelerators must not reach
       // the workspace (save/export/open would run against hidden UI).
       if (managedLockedRef.current) return
+      if (action === 'toggle-chat-focus') {
+        setChatFocusMode(!chatFocusRef.current)
+        return
+      }
+      if (chatFocusRef.current && IDE_ACTIONS.has(action)) {
+        setChatFocusMode(false)
+      }
       if (action === 'toggle-terminal') {
         setShowTerminal(prev => !prev)
         return
@@ -253,7 +276,10 @@ function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
         e.preventDefault()
-        if (projectService.getCurrentProject()) setShowQuickOpen(true)
+        if (projectService.getCurrentProject()) {
+          if (chatFocusRef.current) setChatFocusMode(false)
+          setShowQuickOpen(true)
+        }
       }
     }
     window.addEventListener('keydown', onKey)
@@ -308,7 +334,7 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app${chatFocus ? ' chat-focus' : ''}`}>
       <div className="sidebar" style={{ width: sidebarWidth, flexShrink: 0 }}>
         <div className="sidebar-tabs">
           <button
@@ -371,10 +397,15 @@ function App() {
         orientation="vertical"
         onDelta={(dx) => setChatWidth(w => clamp(w - dx, 260, 800))}
       />
-      <div className="chat-panel" style={{ width: chatWidth, flexShrink: 0 }}>
-        <Chat 
-          key={`${settingsKey}`} 
-          onOpenSettings={() => setShowSettings(true)} 
+      <div
+        className="chat-panel"
+        style={chatFocus ? { flex: 1 } : { width: chatWidth, flexShrink: 0 }}
+      >
+        <Chat
+          key={`${settingsKey}`}
+          onOpenSettings={() => setShowSettings(true)}
+          chatFocus={chatFocus}
+          onToggleFocus={() => setChatFocusMode(!chatFocus)}
         />
       </div>
       {showSettings && <Settings onClose={() => setShowSettings(false)} onApiKeySaved={handleApiKeySaved} />}

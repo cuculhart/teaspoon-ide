@@ -21,6 +21,9 @@ export const MARKDOWN_CSS = `
   line-height: 1.7;
   color: var(--text-primary, #24292f);
   word-wrap: break-word;
+  /* Parents like .message-text use pre-wrap for plain text - rendered
+     HTML must not inherit it or source newlines double-render */
+  white-space: normal;
 }
 .markdown-body h1, .markdown-body h2, .markdown-body h3,
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {

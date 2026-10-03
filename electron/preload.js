@@ -8,6 +8,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createDirectory: (dirPath) => ipcRenderer.invoke('create-directory', dirPath),
   deleteFile: (rootPath, filePath) => ipcRenderer.invoke('delete-file', rootPath, filePath),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  getDocumentsPath: () => ipcRenderer.invoke('documents-path'),
+
+  // Chat history (scoped to userData/chat-history by the main process)
+  chatHistoryList: () => ipcRenderer.invoke('chat-history-list'),
+  chatHistoryGet: (id) => ipcRenderer.invoke('chat-history-get', id),
+  chatHistoryPut: (id, json) => ipcRenderer.invoke('chat-history-put', id, json),
+  chatHistoryDelete: (id) => ipcRenderer.invoke('chat-history-delete', id),
+  chatHistoryClear: () => ipcRenderer.invoke('chat-history-clear'),
   searchFiles: (rootPath, pattern) => ipcRenderer.invoke('search-files', rootPath, pattern),
   findFiles: (rootPath, pattern, maxResults) => ipcRenderer.invoke('find-files', rootPath, pattern, maxResults),
   watchProject: (rootPath) => ipcRenderer.invoke('watch-project', rootPath),

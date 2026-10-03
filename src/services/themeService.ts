@@ -1,7 +1,7 @@
 import { configService, ThemeMode } from './configService'
 
 export type ResolvedTheme =
-  'dark' | 'light' | 'quiet' | 'ocean' | 'console' | 'walnut' | 'heritage'
+  'dark' | 'light' | 'quiet' | 'ocean' | 'console' | 'walnut' | 'heritage' | 'wine'
 
 // Themes whose UI is light - nativeTheme and the OS-level chrome must be
 // told 'light' for these even though their ids are custom.

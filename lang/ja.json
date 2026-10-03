@@ -198,6 +198,7 @@
   "Ancient Console": "エンシェントコンソール",
   "Walnut": "ウォールナット",
   "Heritage": "ヘリテージ",
+  "Rich Wine": "リッチワイン",
   "Font Family": "フォント",
   "Default (system font)": "デフォルト（システムフォント）",
   "Font Size": "フォントサイズ",
@@ -293,5 +294,18 @@
   "Export PDF": "PDF出力",
   "Export Markdown to HTML": "MarkdownをHTMLにエクスポート",
   "Export Markdown to PDF": "MarkdownをPDFにエクスポート",
-  "A file edit failed and was never retried - the reported changes may not exist on disk. Please verify the file.": "ファイルの編集に失敗し、再試行もされませんでした。報告された変更はディスク上に存在しない可能性があります。ファイルを確認してください。"
+  "A file edit failed and was never retried - the reported changes may not exist on disk. Please verify the file.": "ファイルの編集に失敗し、再試行もされませんでした。報告された変更はディスク上に存在しない可能性があります。ファイルを確認してください。",
+  "Chat focus": "チャットフォーカス",
+  "Exit chat focus": "チャットフォーカスを解除",
+  "Create Project Folder": "プロジェクトフォルダを作成",
+  "The AI wants to create files but no project is open. Create a folder to save them in.": "AIがファイルを作成しようとしていますが、プロジェクトが開かれていません。保存先フォルダを作成してください。",
+  "Creating...": "作成中...",
+  "Chats": "チャット",
+  "New chat": "新しいチャット",
+  "Untitled chat": "無題のチャット",
+  "No project": "プロジェクトなし",
+  "No chat history yet": "まだチャット履歴がありません",
+  "Delete this chat": "このチャットを削除",
+  "Delete?": "削除しますか？",
+  "Summarize long conversations (one extra AI request per turn)": "長い会話を要約する（要約用に1ターン1回の追加リクエスト）"
 }

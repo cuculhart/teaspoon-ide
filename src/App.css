@@ -72,6 +72,18 @@
   flex-direction: column;
 }
 
+/* Chat focus mode: hide the IDE panes (kept mounted so the terminal and
+   fs watcher keep running); the chat panel fills the window */
+.app.chat-focus .sidebar,
+.app.chat-focus .main-content,
+.app.chat-focus .splitter {
+  display: none;
+}
+
+.app.chat-focus .chat-panel {
+  border-left: none;
+}
+
 .splitter {
   flex-shrink: 0;
   position: relative;

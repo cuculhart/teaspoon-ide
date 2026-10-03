@@ -43,6 +43,7 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 - **Safe Write Control**: Writes are restricted to the project root; writes outside are rejected
 - **Per-Project Chat Persistence**: Conversations are saved per project and restored on reopen
 - **Checkpoints & Rollback**: Snapshots are taken before AI writes; "↩ Rollback" restores only AI-touched files
+- **Create-project prompt**: If the AI tries to write a file while no project is open, a dialog offers to create a project folder (default parent: Documents) and the file operation continues there
 - **Retry / Cancel / Timeout / Response-length limits** supported
 
 ### Git
@@ -75,6 +76,8 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 - **Font**: Family and size applied across the UI and Monaco
 - **LLM Provider**: Switch between Gemini API (cloud) and Ollama (local, offline) in Settings. Model selection and LiteLLM proxy supported
 - **UI Language**: Switch in Settings > Appearance > Language. Add `lang/<code>.json` to contribute a language — keys are the English source strings
+- **Chat focus**: focus toggle in the chat header (⛶ to enter, ◫ to restore panes) or View > Toggle Chat Focus (Ctrl+Shift+B) hides the sidebar/editor/terminal so the chat fills the window; IDE panes return on menu actions that need them, and the mode is remembered across restarts
+- **Chat list**: while chat focus is on, a conversation rail appears beside the chat (list | conversation). Chats are persisted per conversation — including ones started with no project open — as JSON files under userData/chat-history; long chats are compacted into a rolling summary so requests stay within model context limits
 - **About**: Help > About Teaspoon IDE
 - **Native Menus**: File / Edit / View / Window / Help
 

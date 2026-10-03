@@ -79,6 +79,10 @@
   background: var(--bg-active);
 }
 
+.settings-button.active {
+  color: var(--accent);
+}
+
 .rollback-button {
   background: none;
   border: 1px solid var(--border-strong);
@@ -296,4 +300,127 @@
 .send-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Chat body: optional conversation-list rail beside the chat itself.
+   The rail is only rendered in chat focus mode. */
+.chat-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat-list-rail {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.chat-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.chat-list-new {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chat-list-new:hover {
+  color: var(--text-primary);
+}
+
+.chat-list-items {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.chat-list-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.chat-list-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.chat-list-item:hover {
+  background: var(--bg-hover);
+}
+
+.chat-list-item.active {
+  background: var(--bg-active);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.chat-list-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-list-item-title {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-list-item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-list-delete {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.chat-list-delete:hover {
+  background: var(--bg-hover-strong);
+  color: var(--text-primary);
+}
+
+.chat-list-delete.confirm {
+  background: var(--error);
+  color: var(--on-accent);
+  font-size: 11px;
 }

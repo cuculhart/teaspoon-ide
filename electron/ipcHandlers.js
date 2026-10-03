@@ -311,6 +311,149 @@ function setupIpcHandlers() {
     }
   })
 
+  // Default parent folder for the chat create-project prompt
+  ipcMain.handle('documents-path', () => {
+    try {
+      return { success: true, path: app.getPath('documents') }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  // Chat conversation history: one JSON file per conversation plus a
+  // small index for the chat list. Everything is scoped to
+  // userData/chat-history and ids are validated, so the renderer can
+  // never read or write outside the directory.
+  const CHAT_HISTORY_DIR = path.join(app.getPath('userData'), 'chat-history')
+  const CONV_ID_RE = /^[a-zA-Z0-9_-]+$/
+  const convFile = (id) => path.join(CHAT_HISTORY_DIR, `${id}.json`)
+  const indexFile = () => path.join(CHAT_HISTORY_DIR, 'index.json')
+
+  const writeJsonAtomic = async (file, obj) => {
+    const tmp = `${file}.tmp`
+    await fs.writeFile(tmp, JSON.stringify(obj), 'utf-8')
+    await fs.rename(tmp, file)
+  }
+
+  const convMeta = (conv, id) => ({
+    id: conv.id || id,
+    title: conv.title || '',
+    projectPath: conv.projectPath ?? null,
+    createdAt: conv.createdAt || 0,
+    updatedAt: conv.updatedAt || 0,
+    messageCount: Array.isArray(conv.messages) ? conv.messages.length : 0,
+  })
+
+  const readIndex = async () => {
+    try {
+      const parsed = JSON.parse(await fs.readFile(indexFile(), 'utf-8'))
+      return Array.isArray(parsed?.conversations) ? parsed.conversations : []
+    } catch {
+      return null // missing or corrupt -> caller rebuilds
+    }
+  }
+
+  const rebuildIndex = async () => {
+    const metas = []
+    let names = []
+    try {
+      names = await fs.readdir(CHAT_HISTORY_DIR)
+    } catch {
+      return metas
+    }
+    for (const name of names) {
+      if (!/^conv_[a-zA-Z0-9_-]+\.json$/.test(name)) continue
+      try {
+        const conv = JSON.parse(await fs.readFile(path.join(CHAT_HISTORY_DIR, name), 'utf-8'))
+        if (conv && conv.id) metas.push(convMeta(conv, name.slice(0, -5)))
+      } catch { /* skip unreadable conversation file */ }
+    }
+    metas.sort((a, b) => b.updatedAt - a.updatedAt)
+    await writeJsonAtomic(indexFile(), { version: 1, conversations: metas }).catch(() => {})
+    return metas
+  }
+
+  ipcMain.handle('chat-history-list', async () => {
+    try {
+      await fs.mkdir(CHAT_HISTORY_DIR, { recursive: true, mode: 0o700 })
+      const metas = await readIndex()
+      return { success: true, conversations: metas ?? (await rebuildIndex()) }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('chat-history-get', async (event, id) => {
+    try {
+      if (!CONV_ID_RE.test(String(id))) return { success: false, error: 'Invalid conversation id' }
+      const raw = await fs.readFile(convFile(id), 'utf-8')
+      return { success: true, conversation: JSON.parse(raw) }
+    } catch (error) {
+      if (error.code === 'ENOENT') return { success: true, conversation: null }
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('chat-history-put', async (event, id, json) => {
+    try {
+      if (!CONV_ID_RE.test(String(id))) return { success: false, error: 'Invalid conversation id' }
+      if (typeof json !== 'string' || json.length > 20 * 1024 * 1024) {
+        return { success: false, error: 'Invalid payload' }
+      }
+      await fs.mkdir(CHAT_HISTORY_DIR, { recursive: true, mode: 0o700 })
+      // Crash-safe write: temp file + rename, so a killed process can
+      // never leave a half-written conversation behind.
+      const tmp = `${convFile(id)}.tmp`
+      await fs.writeFile(tmp, json, 'utf-8')
+      await fs.rename(tmp, convFile(id))
+      // Keep the list index in sync - best effort, a corrupt index is
+      // rebuilt on the next chat-history-list anyway.
+      try {
+        const conv = JSON.parse(json)
+        const metas = (await readIndex()) ?? (await rebuildIndex())
+        const list = metas.filter((m) => m.id !== (conv.id || id))
+        list.push(convMeta(conv, id))
+        list.sort((a, b) => b.updatedAt - a.updatedAt)
+        await writeJsonAtomic(indexFile(), { version: 1, conversations: list })
+      } catch { /* index refresh is best-effort */ }
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('chat-history-delete', async (event, id) => {
+    try {
+      if (!CONV_ID_RE.test(String(id))) return { success: false, error: 'Invalid conversation id' }
+      await fs.unlink(convFile(id)).catch(() => {})
+      const metas = (await readIndex()) ?? []
+      await writeJsonAtomic(indexFile(), {
+        version: 1,
+        conversations: metas.filter((m) => m.id !== id),
+      }).catch(() => {})
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('chat-history-clear', async () => {
+    try {
+      let names = []
+      try {
+        names = await fs.readdir(CHAT_HISTORY_DIR)
+      } catch {
+        return { success: true }
+      }
+      for (const name of names) {
+        try { await fs.unlink(path.join(CHAT_HISTORY_DIR, name)) } catch { /* keep going */ }
+      }
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
   // Native edit fallback for inputs outside Monaco (e.g. chat textarea)
   ipcMain.handle('edit-undo', (event) => {
     event.sender.undo()

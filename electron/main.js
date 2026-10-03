@@ -139,6 +139,11 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+`',
           click: () => sendMenuAction('toggle-terminal'),
         },
+        {
+          label: 'Toggle Chat Focus',
+          accelerator: 'CmdOrCtrl+Shift+B',
+          click: () => sendMenuAction('toggle-chat-focus'),
+        },
         { type: 'separator' },
         { role: 'togglefullscreen' },
       ],

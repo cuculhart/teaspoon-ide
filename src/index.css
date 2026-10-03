@@ -202,6 +202,37 @@
   --shadow: rgba(60, 40, 20, 0.2);
 }
 
+/* Rich Wine: red-tinted near-black with cool silvery text - a cocktail
+   spoon against wine under bar lighting. Keywords are copper-orange,
+   not red, so code never reads as errors */
+[data-theme='wine'] {
+  color-scheme: dark;
+  --bg-primary: #1e0a0d;
+  --bg-secondary: #261114;
+  --bg-tertiary: #331a1e;
+  --bg-deep: #140607;
+  --bg-hover: #30171b;
+  --bg-active: #3d1f24;
+  --bg-hover-strong: #472429;
+  --border-color: #4a2228;
+  --border-strong: #5e2e35;
+  --text-primary: #cbd1d6;
+  --text-secondary: #a8b0b6;
+  --text-tertiary: #8a6268;
+  --text-muted: #6e4a52;
+  --accent: #d99138;
+  --accent-hover: #e5a44c;
+  --on-accent: #1e0a0d;
+  --accent-soft: #3a2712;
+  --selected-bg: #4d2430;
+  --error: #e07060;
+  --error-hover: #f08070;
+  --diff-added: #7fa06a;
+  --diff-removed: #c96a5a;
+  --overlay-bg: rgba(0, 0, 0, 0.5);
+  --shadow: rgba(0, 0, 0, 0.4);
+}
+
 * {
   margin: 0;
   padding: 0;

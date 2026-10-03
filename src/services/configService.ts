@@ -9,7 +9,7 @@ const RECENT_PROJECTS_KEY = 'recent_projects'
 const MAX_RECENT_PROJECTS = 10
 
 export type ThemeMode =
-  'system' | 'dark' | 'light' | 'quiet' | 'ocean' | 'console' | 'walnut' | 'heritage'
+  'system' | 'dark' | 'light' | 'quiet' | 'ocean' | 'console' | 'walnut' | 'heritage' | 'wine'
 
 // 'tree' = send only the file list (AI fetches contents via tools).
 // 'full' = send scored file contents up to the token budget (legacy).
@@ -175,7 +175,7 @@ class ConfigService {
 
   getTheme(): ThemeMode {
     const value = this.get('THEME')
-    const modes: ThemeMode[] = ['dark', 'light', 'quiet', 'ocean', 'console', 'walnut', 'heritage']
+    const modes: ThemeMode[] = ['dark', 'light', 'quiet', 'ocean', 'console', 'walnut', 'heritage', 'wine']
     return modes.includes(value as ThemeMode) ? (value as ThemeMode) : 'system'
   }
 
@@ -230,6 +230,40 @@ class ConfigService {
   removeRecentProject(path: string): void {
     const list = this.getRecentProjects().filter(p => p.path !== path)
     localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(list))
+  }
+
+  // Chat focus mode: only the chat panel is visible, IDE panes hidden
+  getChatFocus(): boolean {
+    return localStorage.getItem('chat_focus') === '1'
+  }
+
+  setChatFocus(on: boolean): void {
+    localStorage.setItem('chat_focus', on ? '1' : '0')
+  }
+
+  // Conversation active when no project is open - restored on the next
+  // run so project-less chats survive restarts like project chats do.
+  getLastNoProjectConv(): string | null {
+    return localStorage.getItem('last_no_project_conv')
+  }
+
+  setLastNoProjectConv(id: string | null): void {
+    if (id) {
+      localStorage.setItem('last_no_project_conv', id)
+    } else {
+      localStorage.removeItem('last_no_project_conv')
+    }
+  }
+
+  // Whether long conversations are compacted into a rolling summary.
+  // The compaction costs one extra AI call per turn on long chats, so
+  // it can be disabled to keep request counts identical to before.
+  getAutoSummarize(): boolean {
+    return localStorage.getItem('auto_summarize') !== '0'
+  }
+
+  setAutoSummarize(on: boolean): void {
+    localStorage.setItem('auto_summarize', on ? '1' : '0')
   }
 
   getLlmProvider(): LlmProvider {

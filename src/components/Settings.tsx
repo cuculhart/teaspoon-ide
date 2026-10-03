@@ -56,6 +56,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [confirmClearChatHistory, setConfirmClearChatHistory] = useState(false)
   const [contextMode, setContextMode] = useState<ContextMode>('tree')
   const [contextMaxFiles, setContextMaxFiles] = useState('2000')
+  const [autoSummarize, setAutoSummarize] = useState(true)
   const [provider, setProvider] = useState<LlmProvider>('gemini')
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
   const [ollamaModel, setOllamaModel] = useState('gemma4:e4b')
@@ -99,6 +100,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
         setFontSize(savedFontSize ? String(savedFontSize) : '')
         setContextMode(configService.getContextMode())
         setContextMaxFiles(String(configService.getContextMaxFiles()))
+        setAutoSummarize(configService.getAutoSummarize())
         const p = configService.getLlmProvider()
         setProvider(p)
         setOllamaUrl(configService.getOllamaBaseUrl())
@@ -191,6 +193,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
     }
   }
 
+  const handleAutoSummarizeChange = (on: boolean) => {
+    setAutoSummarize(on)
+    configService.setAutoSummarize(on)
+  }
+
   // Provider settings apply immediately (no Save needed)
   const refreshOllamaModels = async () => {
     setOllamaReachable(null)
@@ -262,7 +269,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   }
 
   const handleClearChatHistory = () => {
-    chatHistoryService.clearAll()
+    void chatHistoryService.clearAll()
     window.dispatchEvent(new Event('teaspoon:chat-history-cleared'))
     setConfirmClearChatHistory(false)
     setChatHistoryCleared(true)
@@ -317,6 +324,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 <option value="console">{t('Ancient Console')}</option>
                 <option value="walnut">{t('Walnut')}</option>
                 <option value="heritage">{t('Heritage')}</option>
+                <option value="wine">{t('Rich Wine')}</option>
               </select>
             </div>
 
@@ -383,6 +391,17 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 <span className="appearance-unit">{t('paths')}</span>
               </div>
             )}
+
+            <div className="proxy-toggle">
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={autoSummarize}
+                  onChange={(e) => handleAutoSummarizeChange(e.target.checked)}
+                />
+                <span>{t('Summarize long conversations (one extra AI request per turn)')}</span>
+              </label>
+            </div>
           </div>
 
           <div className="setting-section">

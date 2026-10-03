@@ -5,7 +5,93 @@ All notable changes to Teaspoon IDE are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-10-03
+
+### Added
+
+- Chat focus mode: a toggle button in the chat header (or View > Toggle
+  Chat Focus, Ctrl+Shift+B) hides the sidebar, editor, and terminal so
+  the chat fills the window. The panes stay mounted and their widths are
+  remembered; menu actions that need them (Open Project, Quick Open,
+  Terminal, exports, ...) bring them back automatically. The mode is
+  remembered across restarts.
+- Conversation list in chat focus: a rail beside the chat shows all
+  saved conversations with title, project badge, and timestamp, like
+  hosted chat apps. Entries load in place (opening the bound project,
+  or clearing it for project-less chats), can be deleted, and
+  "+ New chat" starts a fresh conversation.
+- Project-less conversations are persisted too: chats started with no
+  folder open are saved and the last one is restored on the next run.
+- Create-project prompt: when the AI wants to write a file while no
+  project is open, a dialog offers to create a project folder (default
+  parent: Documents) instead of rejecting the write. The new folder
+  opens in place without remounting the chat, so the pending operation
+  continues to the normal approval step. Offered at most once per user
+  turn.
+- Long-conversation compaction: chats longer than the recent window
+  (20 messages) send older turns as a rolling summary instead of the
+  full transcript, keeping requests within small-model context limits.
+  The extra summarization call can be disabled in Settings > AI
+  Context to keep request counts identical to before.
+- New theme **Rich Wine** (`wine`): a bar-lit wine palette - red-tinted
+  near-black surfaces, silvery text and type (the cocktail spoon),
+  copper-orange keywords, amber/champagne strings and numbers, and
+  mauve functions, so no code color reads as an error.
+- Adversarial E2E suite (e2e/run.mjs, "npm run test:e2e"): launches
+  the real app under Playwright's Electron support with a private
+  --user-data-dir and stubs the Gemini endpoint via page.route(), so
+  scripted model output exercises the command parser, file-access
+  guards, approval dialogs, conversation storage, and markdown
+  sanitization deterministically - no API key or network needed.
+
+### Changed
+
+- Assistant chat messages now render as Markdown (headings, lists,
+  tables, code blocks) using the same marked + DOMPurify pipeline as
+  the editor's .md preview. User messages and the streaming bubble
+  stay plain text.
+- Chat history moved from localStorage to JSON files under
+  userData/chat-history (one file per conversation plus an index),
+  with atomic writes and an automatic one-time migration - the ~5MB
+  quota no longer caps growth, rawContent blobs (raw model output incl.
+  file bodies) are trimmed from older messages before saving, and
+  exhausted saves can no longer be silently dropped.
+
+### Fixed
+
+- Security: file commands are now rejected unless they resolve inside
+  an open project. With no project open, absolute paths used to pass
+  through, so a bare "// READ_FILE: C:/..." could silently read any
+  file on disk and send its contents to the model; ".." segments were
+  not normalized, so "../../x" escaped the project root as a string
+  that only looked root-relative; and reads/lists fell back to the
+  raw command argument on resolution failure, which let a rejected
+  relative path read relative to the app's working directory.
+- File commands emitted with markdown ":::" fences
+  (:::WRITE_FILE: path ... :::) are now parsed as commands instead of
+  shown as raw text - gemini-lite-class models emit that dialect
+  reliably, so writes and the create-project prompt previously never
+  fired.
+- The current user message is no longer sent twice per request (once
+  in the history array, once as the prompt).
+- The model can no longer mistake a truncated history for the start
+  of the conversation: when earlier turns are dropped by the
+  recent-message window, the prompt discloses it (or attributes them
+  to the summary), so questions like "answer my first question" get
+  an honest answer instead of the first visible turn.
+- The app-context prompt now describes the app accurately - chat
+  focus, supported platforms (Windows/macOS/Linux), the built-in
+  providers (Gemini API / Ollama / LiteLLM proxy), and the text-tab
+  sidebar - so the model no longer invents UI elements, platforms, or
+  providers; a UI-state note covers "I can't see the sidebar" while
+  chat focus is on.
+- The no-project prompt now matches actual behavior: WRITE_FILE and
+  EDIT_FILE trigger the create-project dialog rather than failing,
+  bare "create a project" requests are sent there directly via a
+  starter file, the manual path (File > New Project... / the
+  Explorer's New Project button) is named as the fallback, and the
+  model is told not to repeat the "no project is open" note in every
+  reply.
 
 ## [0.8.0] - 2026-10-03
 
