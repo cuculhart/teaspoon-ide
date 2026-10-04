@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeping URLs and UNC paths intact; `start`/`open`/`xdg-open` targets
   given as a markdown link (`[label](url)`) now resolve to the real URL.
 - File commands whose path ran into the reply's next sentence with no
-  separator ("// READ_FILE: .../Spec.mdプロジェクト ...") tried to open
+  separator ("// READ_FILE: .../Spec.md<glued prose> ...") tried to open
   the whole line as a filename and failed with ENOENT; the argument is
   now cut at the ".ext" boundary when non-ASCII prose is glued on
   (real CJK directory names are kept).
