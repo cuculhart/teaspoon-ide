@@ -5,6 +5,103 @@ All notable changes to Teaspoon IDE are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-10-04
+
+### Added
+
+- `// CLOSE_PROJECT` command: the AI can now close the open project
+  when asked (e.g. "close the project"), routing through the same
+  cleanup as File > Close Project. Reversible and non-destructive,
+  so it runs without an approval dialog; commands emitted after it
+  in the same reply fail cleanly. Previously the model had no way to
+  close a project and would reply as if it had.
+- New Project now warns when the chosen target folder already exists
+  and is not empty. Because directory creation is recursive, such a
+  folder was previously adopted silently as the project - mixing new
+  files into an existing directory and binding the conversation to a
+  path another project already used. The dialog now shows the item
+  count and requires a second "Open Anyway" click to adopt it;
+  changing the name or parent resets the warning.
+
+### Changed
+
+- The command parser moved from Chat.tsx to services/commandParser.ts so
+  it runs under plain node; `npm run test:parser` exercises it against
+  every malformed model output seen in the wild (URL truncation, glued
+  commands, JSON blobs, bare commands, fenced examples, CJK prose).
+
+### Fixed
+
+- Commands typed without the "//" prefix ("WRITE_FILE: x.md" as a bare
+  line) were previously invisible to the parser - nothing ran and no
+  retry fired. Bare WRITE_FILE/EDIT_FILE headings (body to the next END
+  terminator or end of reply) and bare single-line commands now execute;
+  the colon after the keyword is required so prose doesn't match. The
+  prompt now notes that the "//" prefix is required.
+- Weak models sometimes emit commands as JSON blobs
+  ([{"command": "WRITE_FILE", ...}]) instead of the // syntax; they used to
+  sit in the reply as inert text. Objects that JSON.parse cleanly are now
+  executed like real commands (common field names - path/file/cmd/target/
+  content - are mapped), while blobs inside markdown fences or malformed
+  JSON stay inert. The system prompt now also states that JSON is not a
+  valid command format.
+- `// RUN_COMMAND: start https://...` (open a URL in the browser) always
+  failed: the command argument was cut at the `//` inside the URL, so
+  only `start https:` survived - the approval dialog showed that
+  truncated prefix and the open attempt then failed. Command arguments
+  now end only before whitespace + `//` or a `//` command keyword,
+  keeping URLs and UNC paths intact; `start`/`open`/`xdg-open` targets
+  given as a markdown link (`[label](url)`) now resolve to the real URL.
+- File commands whose path ran into the reply's next sentence with no
+  separator ("// READ_FILE: .../Spec.mdプロジェクト ...") tried to open
+  the whole line as a filename and failed with ENOENT; the argument is
+  now cut at the ".ext" boundary when non-ASCII prose is glued on
+  (real CJK directory names are kept).
+- Command syntax shown for documentation now stays inert. Examples the
+  model wrote inside markdown code fences used to execute like real
+  commands - asking "what commands can you use" made
+  READ_FILE/WRITE_FILE run on template paths and even closed the open
+  project via a CLOSE_PROJECT example. Lines inside ``` fences are now
+  left as visible text, and the prompt tells the model to fence
+  examples. Template-looking "<file_path>" args are deliberately treated
+  as real attempts, so they reach the create-project prompt or a
+  visible error instead of being silently ignored.
+- Closing a project no longer disrupts the chat. Both the new
+  CLOSE_PROJECT command and File > Close Project previously remounted
+  the Chat panel: an in-flight agent loop was orphaned (its final
+  reply was lost), the visible conversation was replaced by an older
+  project-less one, and a leftover project-bound conversation could
+  reopen its project when picked from the rail. The project now closes
+  around the running chat, the editor releases the open file via the
+  shared project-opened event, and the current conversation stays
+  visible.
+- A conversation keeps its project binding when the project closes
+  mid-chat (previously the next save rebound it to "no project"), so
+  reopening the project restores that conversation instead of
+  starting empty. Chats continued with no project open still mark
+  themselves as the conversation to show in that state.
+- Reloading the app with a project open could show the wrong
+  conversation: Chat's mount-time load ran before the Explorer's async
+  project restore finished, saw "no project", and loaded the last
+  project-less chat instead of the project's one. It now waits for the
+  restore when a last-project path is configured. A stale
+  "last project-less conversation" pointer is also cleared once its
+  conversation gets bound to a project, so it can no longer hijack the
+  startup load.
+- Markdown tables in assistant chat messages could overflow the message
+  bubble and trigger a horizontal scrollbar in the chat pane. Tables now
+  always fit the bubble width (cell text, including long file paths,
+  wraps as needed), and the message list no longer scrolls horizontally.
+- Command result notes (Read file, Wrote file, Listed files, ...)
+  showed the absolute path; they now show the project-relative path,
+  so the OS user name no longer appears in chat history or gets echoed
+  back to cloud providers.
+- The chat header could push its action buttons (Rollback, Clear,
+  focus toggle, Settings) off the right edge on narrow panes whenever
+  the title side grew - a long model name, the budget badge, or the
+  Rollback button appearing. The title/badges now shrink with an
+  ellipsis while the buttons stay fully visible.
+
 ## [0.9.0] - 2026-10-03
 
 ### Added

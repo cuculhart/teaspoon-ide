@@ -3,13 +3,14 @@ import { llmService } from '../services/llmService'
 import { configService } from '../services/configService'
 import { managedService } from '../services/managedService'
 import { projectService } from '../services/projectService'
+import { Project } from '../types/project'
 import { contextService } from '../services/contextService'
 import { chatHistoryService, ConversationMeta } from '../services/chatHistoryService'
 import FileEditApproval, { FileEdit } from './FileEditApproval'
 import CommandApproval from './CommandApproval'
 import CreateProjectModal from './CreateProjectModal'
 import { i18nService, useT } from '../services/i18nService'
-import { hostOpenCommand } from '../services/agentPrompt'
+import { findFileCommands } from '../services/commandParser'
 import { renderMarkdown, MARKDOWN_CSS } from '../utils/markdown'
 import './Chat.css'
 
@@ -134,14 +135,6 @@ function findUnrequestedSubdir(userText: string, relPath: string): string | null
   return dirs.some(d => !lower.includes(d.toLowerCase())) ? dirs.join('/') : null
 }
 
-interface FileCommand {
-  type: 'write' | 'read' | 'list' | 'run' | 'grep' | 'find' | 'edit'
-  arg: string
-  body?: string
-  start: number
-  end: number
-}
-
 interface RunResult {
   output: string
   exitCode: number | null
@@ -162,159 +155,7 @@ interface CommandExecutionResult {
   checkpoint?: { path: string; prevContent: string; existed: boolean }[]
 }
 
-// Small models sometimes wrap the whole file body in a markdown code fence
-// ("```md\n...\n```"), which would be written to disk literally and render
-// the file as one giant code block. If the body starts with a fence line,
-// everything up to the last bare "```" line is unwrapped - trailing prose
-// after it is dropped. Inner fences must pair up, otherwise the fence is
-// real content and the body is kept as-is.
-function unwrapFenceBody(body: string): { content: string; end: number } | null {
-  const open = body.match(/^(?:[ \t]*\r?\n)*[ \t]*```[\w+-]*[ \t]*\r?\n/)
-  if (!open) return null
-  const closes = [...body.matchAll(/^[ \t]*```[ \t]*\r?$/gm)]
-  const lastClose = closes[closes.length - 1]
-  if (!lastClose || lastClose.index! <= open[0].length) return null
-  const content = body.slice(open[0].length, lastClose.index)
-  if (((content.match(/^[ \t]*```[^\n]*$/gm) ?? []).length) % 2 !== 0) return null
-  let end = lastClose.index! + lastClose[0].length
-  if (body[end] === '\n') end++
-  return { content, end }
-}
-
-// Drop trailing "(...)" prose small models append to file paths
-// ("README.md (assuming you meant...)"). Keeps parens that look like part
-// of the name itself ("report (final)" stays - fewer than 3 words and no
-// filler phrasing).
-function cleanPathArg(arg: string): string {
-  return arg.replace(/[ \t]+\(([^()]*)\)[ \t]*$/, (m, inner) =>
-    inner.trim().split(/\s+/).length >= 3 ||
-    /\b(or|assuming|note|e\.g|i\.e|if|you|this|that|instead|since|because)\b/i.test(inner)
-      ? '' : m
-  )
-}
-
-function cleanRunCommandArg(command: string): string {
-  const openerMatch = command.match(/^\s*(?:cmd(?:\.exe)?\s+\/c\s+)?(start|xdg-open|open)\s+(.*)$/i)
-  if (!openerMatch) return command
-
-  let rest = openerMatch[2].trim()
-  rest = rest.replace(/^(?:(?:cmd(?:\.exe)?\s+\/c\s+)?(?:start|xdg-open|open)\s+)+/i, '')
-  rest = rest.replace(/^""\s*/, '')
-
-  const targetMatch = rest.match(/^(?:"[^"\n]+"|'[^'\n]+'|(?:https?|file):\/\/[^\s"'<>\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+|[^\s"'<>\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+\.[A-Za-z0-9]{1,10})/iu)
-  if (!targetMatch) return command
-
-  return `${hostOpenCommand()} ${targetMatch[0]}`
-}
-
-// Find file commands embedded in the AI response
-function findFileCommands(response: string): FileCommand[] {
-  const commands: FileCommand[] = []
-  let match
-
-  // Fenced-div style: some models emit the command grammar with markdown
-  // ":::" fences (:::WRITE_FILE: path ... :::) instead of // comment markers.
-  const colonWriteRegex = /^[ \t]*:::[ \t]*WRITE_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n([\s\S]*?)^[ \t]*:::[ \t]*$/gm
-  while ((match = colonWriteRegex.exec(response)) !== null) {
-    const unwrapped = unwrapFenceBody(match[2])
-    commands.push({ type: 'write', arg: cleanPathArg(match[1].trim()), body: unwrapped?.content ?? match[2], start: match.index, end: match.index + match[0].length })
-  }
-
-  const colonEditRegex = /^[ \t]*:::[ \t]*EDIT_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n([\s\S]*?)^[ \t]*:::[ \t]*$/gm
-  while ((match = colonEditRegex.exec(response)) !== null) {
-    commands.push({ type: 'edit', arg: cleanPathArg(match[1].trim()), body: match[2], start: match.index, end: match.index + match[0].length })
-  }
-
-  const COLON_LINE_TYPES: Record<string, FileCommand['type']> = {
-    READ_FILE: 'read', LIST_FILES: 'list', RUN_COMMAND: 'run', GREP: 'grep', FIND_FILES: 'find',
-  }
-  const colonLineRegex = /^[ \t]*:::[ \t]*(READ_FILE|LIST_FILES|RUN_COMMAND|GREP|FIND_FILES)[ \t]*:?[ \t]*([^\n]*?)[ \t]*$/gm
-  while ((match = colonLineRegex.exec(response)) !== null) {
-    const type = COLON_LINE_TYPES[match[1]]
-    const raw = match[2].trim()
-    commands.push({
-      type,
-      arg: type === 'run' ? cleanRunCommandArg(raw) : type === 'grep' ? raw : cleanPathArg(raw),
-      start: match.index,
-      end: match.index + match[0].length,
-    })
-  }
-
-  // Small models sometimes drop the colon ("// READ_FILE x") or close blocks
-  // with another language's comment marker ("# END_WRITE_FILE") - tolerate both.
-  const writeFileRegex = /\/\/ WRITE_FILE[ \t]*:?[ \t]*([^\n]+?)\n([\s\S]*?)(?:\/\/|#|--)[ \t]*END_WRITE_FILE/g
-  while ((match = writeFileRegex.exec(response)) !== null) {
-    const unwrapped = unwrapFenceBody(match[2])
-    commands.push({ type: 'write', arg: cleanPathArg(match[1].trim()), body: unwrapped?.content ?? match[2], start: match.index, end: match.index + match[0].length })
-  }
-
-  // Salvage: a WRITE_FILE opener whose body is a code fence but that never
-  // got "// END_WRITE_FILE" - small models treat the closing ``` as the
-  // terminator. Only openers not already inside a parsed command are tried.
-  const writeOpenRegex = /(?:(?:\/\/)|:::)[ \t]*WRITE_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n/g
-  while ((match = writeOpenRegex.exec(response)) !== null) {
-    const start = match.index
-    if (commands.some(c => start >= c.start && start < c.end)) continue
-    const unwrapped = unwrapFenceBody(response.slice(start + match[0].length))
-    if (!unwrapped) continue
-    commands.push({ type: 'write', arg: cleanPathArg(match[1].trim()), body: unwrapped.content, start, end: start + match[0].length + unwrapped.end })
-  }
-
-  const editFileRegex = /\/\/ EDIT_FILE[ \t]*:?[ \t]*([^\n]+?)\n([\s\S]*?)(?:\/\/|#|--)[ \t]*END_EDIT_FILE/g
-  while ((match = editFileRegex.exec(response)) !== null) {
-    commands.push({ type: 'edit', arg: cleanPathArg(match[1].trim()), body: match[2], start: match.index, end: match.index + match[0].length })
-  }
-
-  // Salvage: an EDIT_FILE opener never closed with "// END_EDIT_FILE", but
-  // the body ends with a complete >>>>>>> REPLACE delimiter - the model
-  // forgot the terminator. Take the body up to the last delimiter line.
-  const editOpenRegex = /(?:(?:\/\/)|:::)[ \t]*EDIT_FILE[ \t]*:?[ \t]*([^\n]+?)\r?\n/g
-  while ((match = editOpenRegex.exec(response)) !== null) {
-    const start = match.index
-    if (commands.some(c => start >= c.start && start < c.end)) continue
-    const rest = response.slice(start + match[0].length)
-    const delimiters = [...rest.matchAll(/^>{3,}[^\n]*$/gm)]
-    if (delimiters.length === 0) continue
-    const last = delimiters[delimiters.length - 1]
-    const bodyEnd = last.index! + last[0].length
-    commands.push({ type: 'edit', arg: cleanPathArg(match[1].trim()), body: rest.slice(0, bodyEnd), start, end: start + match[0].length + bodyEnd })
-  }
-
-  // The AI sometimes puts several commands on one line ("// READ_FILE: a// LIST_FILES: b"),
-  // so the path argument ends at the next "//" command or the end of the line.
-  const readFileRegex = /\/\/ READ_FILE[ \t]*:?[ \t]*([^\n]+?)(?=[ \t]*\/\/|\n|$)/g
-  while ((match = readFileRegex.exec(response)) !== null) {
-    commands.push({ type: 'read', arg: cleanPathArg(match[1].trim()), start: match.index, end: match.index + match[0].length })
-  }
-
-  const listFilesRegex = /\/\/ LIST_FILES[ \t]*:?[ \t]*([^\n]+?)(?=[ \t]*\/\/|\n|$)/g
-  while ((match = listFilesRegex.exec(response)) !== null) {
-    commands.push({ type: 'list', arg: cleanPathArg(match[1].trim()), start: match.index, end: match.index + match[0].length })
-  }
-
-  const runCommandRegex = /\/\/ RUN_COMMAND[ \t]*:?[ \t]*([^\n]+?)(?=[ \t]*\/\/|\n|$)/g
-  while ((match = runCommandRegex.exec(response)) !== null) {
-    commands.push({ type: 'run', arg: cleanRunCommandArg(match[1].trim()), start: match.index, end: match.index + match[0].length })
-  }
-
-  const grepRegex = /\/\/ GREP[ \t]*:?[ \t]*([^\n]+?)(?=[ \t]*\/\/|\n|$)/g
-  while ((match = grepRegex.exec(response)) !== null) {
-    commands.push({ type: 'grep', arg: match[1].trim(), start: match.index, end: match.index + match[0].length })
-  }
-
-  const findFilesRegex = /\/\/ FIND_FILES[ \t]*:?[ \t]*([^\n]+?)(?=[ \t]*\/\/|\n|$)/g
-  while ((match = findFilesRegex.exec(response)) !== null) {
-    commands.push({ type: 'find', arg: cleanPathArg(match[1].trim()), start: match.index, end: match.index + match[0].length })
-  }
-
-  // A command-like line inside a WRITE_FILE/EDIT_FILE body is file content,
-  // not a command (e.g. "// RUN_COMMAND:" examples inside a README's code
-  // block must not execute).
-  const blocks = commands.filter(c => c.type === 'write' || c.type === 'edit')
-  return commands
-    .filter(c => !blocks.some(b => c !== b && c.start >= b.start && c.start < b.end))
-    .sort((a, b) => a.start - b.start)
-}
+// Command parsing lives in ../services/commandParser (unit-testable there).
 
 // Parse Aider-style SEARCH/REPLACE blocks inside an EDIT_FILE body
 interface EditBlock {
@@ -406,15 +247,19 @@ async function parseAndExecuteFileCommands(
     preEditTestFailure?: { command: string; tail: string } | null
   }
 ): Promise<CommandExecutionResult> {
-  const commands = findFileCommands(response)
+  const { commands, docSpans } = findFileCommands(response)
 
   // Text inside WRITE_FILE/EDIT_FILE blocks is file content, not commands -
   // mask it so mentions like "// WRITE_FILE:" in a README don't trigger the
-  // malformed/invented checks.
-  const scanText = commands.reduce((s, c) =>
-    (c.type === 'write' || c.type === 'edit')
-      ? s.slice(0, c.start) + ' '.repeat(c.end - c.start) + s.slice(c.end)
-      : s, response)
+  // malformed/invented checks. Documented syntax (code fences, "<...>"
+  // placeholder args) is masked for the same reason.
+  const mask = (s: string, [a, b]: [number, number]) =>
+    s.slice(0, a) + ' '.repeat(b - a) + s.slice(b)
+  const scanText = [...docSpans,
+    ...commands
+      .filter(c => c.type === 'write' || c.type === 'edit')
+      .map(c => [c.start, c.end] as [number, number]),
+  ].reduce(mask, response)
 
   // Small models sometimes open a WRITE_FILE/EDIT_FILE block but close it
   // with the wrong terminator (e.g. // END_EDIT_FILE) or none at all. The
@@ -433,7 +278,7 @@ async function parseAndExecuteFileCommands(
   // comments are ignored), and known command names/terminators are excluded.
   const KNOWN_COMMAND_NAMES = new Set([
     'WRITE_FILE', 'EDIT_FILE', 'READ_FILE', 'LIST_FILES', 'RUN_COMMAND',
-    'GREP', 'FIND_FILES', 'END_WRITE_FILE', 'END_EDIT_FILE',
+    'GREP', 'FIND_FILES', 'CLOSE_PROJECT', 'END_WRITE_FILE', 'END_EDIT_FILE',
   ])
   const inventedCmds = [...new Set(
     (scanText.match(/^(?:\/\/|:::)[ \t]*[A-Z][A-Z0-9_.-]*(?=[ \t:]|$)/gm) ?? [])
@@ -488,7 +333,7 @@ async function parseAndExecuteFileCommands(
   if (inventedCmds.length > 0) {
     feedback.push(
       `Unknown command(s): ${inventedCmds.map(c => `// ${c}`).join(', ')}. ` +
-      'Valid commands are "// WRITE_FILE:", "// EDIT_FILE:", "// READ_FILE:", "// LIST_FILES:", "// GREP:", "// FIND_FILES:", "// RUN_COMMAND:" ' +
+      'Valid commands are "// WRITE_FILE:", "// EDIT_FILE:", "// READ_FILE:", "// LIST_FILES:", "// GREP:", "// FIND_FILES:", "// RUN_COMMAND:", "// CLOSE_PROJECT" ' +
       '(WRITE_FILE/EDIT_FILE blocks close with "// END_WRITE_FILE" / "// END_EDIT_FILE"). ' +
       'To create a file, emit "// WRITE_FILE: <file_path>", the content, then "// END_WRITE_FILE".'
     )
@@ -503,8 +348,8 @@ async function parseAndExecuteFileCommands(
   }
   if (commands.length === 0 && creationIntent && hasFence) {
     feedback.push(
-      'You showed code inside a markdown code fence - that never writes to disk. ' +
-      'Emit "// WRITE_FILE: <file_path>", the content, then "// END_WRITE_FILE".'
+      'You showed code inside a markdown code fence - fenced lines are shown to the user as text and never executed, so nothing was written to disk. ' +
+      'Emit the command OUTSIDE any code fence: "// WRITE_FILE: <file_path>", the content, then "// END_WRITE_FILE".'
     )
     needsContinuation = true
   }
@@ -553,6 +398,27 @@ async function parseAndExecuteFileCommands(
         needsContinuation = true
       } else {
         pendingRuns.push({ index: i, command: cmd.arg })
+      }
+    } else if (cmd.type === 'close') {
+      needsContinuation = true
+      const project = projectService.getCurrentProject()
+      if (!project?.isOpen) {
+        notes[i] = `⚠️ ${i18nService.t('No project is open; cannot close.')}`
+        feedback.push('CLOSE_PROJECT: failed - no project open')
+      } else {
+        // Same cleanup as File > Close Project, but without the
+        // app-menu path - that one remounts Chat and would orphan this
+        // in-flight agent loop. The project-opened event lets the
+        // Explorer and editor clear themselves instead. Reversible and
+        // non-destructive, so no approval.
+        window.electronAPI?.unwatchProject?.()
+        projectService.closeProject()
+        contextService.clearContext()
+        configService.setLastProjectPath('')
+        configService.setLastOpenFile('')
+        window.dispatchEvent(new CustomEvent('teaspoon:project-opened', { detail: { rootPath: null } }))
+        notes[i] = `✅ ${i18nService.t('Closed project')}`
+        feedback.push('CLOSE_PROJECT: the project is now closed. Any further file commands will fail - finish your answer.')
       }
     } else if (cmd.type === 'grep' || cmd.type === 'find') {
       // Content/path search across the whole project - no path resolution needed
@@ -603,16 +469,16 @@ async function parseAndExecuteFileCommands(
         const result = await window.electronAPI.readFile(filePath)
         if (result.success) {
           console.log(`File read: ${filePath}`)
-          notes[i] = `📖 ${i18nService.t('Read file')}: ${filePath}`
+          notes[i] = `📖 ${i18nService.t('Read file')}: ${pathRelativeToRoot(filePath)}`
           feedback.push(`READ_FILE ${pathRelativeToRoot(filePath)} result:\n${result.content}`)
         } else {
           console.error(`Failed to read file: ${filePath}`, result.error)
-          notes[i] = `⚠️ ${i18nService.t('Error reading file')} ${filePath}: ${result.error}`
+          notes[i] = `⚠️ ${i18nService.t('Error reading file')} ${pathRelativeToRoot(filePath)}: ${result.error}`
           feedback.push(`READ_FILE ${pathRelativeToRoot(filePath)}: failed - ${result.error}`)
         }
       } catch (error) {
         console.error(`Error reading file: ${filePath}`, error)
-        notes[i] = `⚠️ ${i18nService.t('Error reading file')} ${filePath}: ${error}`
+        notes[i] = `⚠️ ${i18nService.t('Error reading file')} ${pathRelativeToRoot(filePath)}: ${error}`
         feedback.push(`READ_FILE ${pathRelativeToRoot(filePath)}: failed - ${error}`)
       }
     } else {
@@ -627,19 +493,19 @@ async function parseAndExecuteFileCommands(
         const result = await window.electronAPI.readDirectory(directoryPath)
         if (result.success && result.items) {
           console.log(`Files listed: ${directoryPath}`)
-          notes[i] = `📁 ${i18nService.t('Listed files in')}: ${directoryPath}`
+          notes[i] = `📁 ${i18nService.t('Listed files in')}: ${pathRelativeToRoot(directoryPath)}`
           const fileList = result.items.map((item: any) =>
             `${item.isDirectory ? 'DIR' : 'FILE'}: ${item.name}`
           ).join('\n')
           feedback.push(`LIST_FILES ${pathRelativeToRoot(directoryPath)} result:\n${fileList}`)
         } else {
           console.error(`Failed to list files: ${directoryPath}`, result.error)
-          notes[i] = `⚠️ ${i18nService.t('Error listing files')} ${directoryPath}: ${result.error}`
+          notes[i] = `⚠️ ${i18nService.t('Error listing files')} ${pathRelativeToRoot(directoryPath)}: ${result.error}`
           feedback.push(`LIST_FILES ${pathRelativeToRoot(directoryPath)}: failed - ${result.error}`)
         }
       } catch (error) {
         console.error(`Error listing files: ${directoryPath}`, error)
-        notes[i] = `⚠️ ${i18nService.t('Error listing files')} ${directoryPath}: ${error}`
+        notes[i] = `⚠️ ${i18nService.t('Error listing files')} ${pathRelativeToRoot(directoryPath)}: ${error}`
         feedback.push(`LIST_FILES ${pathRelativeToRoot(directoryPath)}: failed - ${error}`)
       }
     }
@@ -738,7 +604,7 @@ async function parseAndExecuteFileCommands(
       const item = planByEdit.get(edit)!
       const label = item.kind === 'write' ? 'WRITE_FILE' : 'EDIT_FILE'
       if (!approvedSet.has(edit)) {
-        notes[item.index] = `⏭️ ${i18nService.t('Skipped (rejected by user)')}: ${item.path}`
+        notes[item.index] = `⏭️ ${i18nService.t('Skipped (rejected by user)')}: ${pathRelativeToRoot(item.path)}`
         feedback.push(`${label} ${pathRelativeToRoot(item.path)}: rejected by user`)
         needsContinuation = true
         continue
@@ -750,8 +616,8 @@ async function parseAndExecuteFileCommands(
         await projectService.writeFile(item.path, edit.newContent)
         console.log(`File written: ${item.path}`)
         notes[item.index] = item.kind === 'write'
-          ? `✅ ${i18nService.t('Wrote file')}: ${item.path}`
-          : `✅ ${i18nService.t('Edited file')}: ${item.path}`
+          ? `✅ ${i18nService.t('Wrote file')}: ${pathRelativeToRoot(item.path)}`
+          : `✅ ${i18nService.t('Edited file')}: ${pathRelativeToRoot(item.path)}`
         feedback.push(`${label} ${pathRelativeToRoot(item.path)}: success`)
         batchEditSucceeded = true
         if (state) state.editsApplied = (state.editsApplied ?? 0) + 1
@@ -762,7 +628,7 @@ async function parseAndExecuteFileCommands(
         }))
       } catch (error) {
         console.error(`Error writing file: ${item.path}`, error)
-        notes[item.index] = `⚠️ ${i18nService.t('Error writing file')} ${item.path}: ${error}`
+        notes[item.index] = `⚠️ ${i18nService.t('Error writing file')} ${pathRelativeToRoot(item.path)}: ${error}`
         feedback.push(`${label} ${pathRelativeToRoot(item.path)}: failed - ${error}`)
         needsContinuation = true
         batchEditFailed = true
@@ -895,6 +761,20 @@ async function parseAndExecuteFileCommands(
 const ANSI_REGEX = /[\u001b\u009b][\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g
 const stripAnsi = (s: string) => s.replace(ANSI_REGEX, '')
 
+// Resolve once a project opens, or null on timeout. Used at startup so
+// conversation restore can wait for the Explorer's async project
+// restore instead of prematurely falling back to the project-less chat.
+const waitForProjectOpen = (timeoutMs: number): Promise<Project | null> =>
+  new Promise((resolve) => {
+    const open = projectService.getCurrentProject()
+    if (open?.isOpen) { resolve(open); return }
+    const timer = setTimeout(() => { off(); resolve(null) }, timeoutMs)
+    const off = projectService.onChange(() => {
+      const p = projectService.getCurrentProject()
+      if (p?.isOpen) { clearTimeout(timer); off(); resolve(p) }
+    })
+  })
+
 const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus }) => {
   const t = useT()
   // Chat is persisted per conversation (file-backed). The component
@@ -911,6 +791,10 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
     setConvIdState(id)
   }
   const convCreatedAtRef = useRef(0)
+  // Project binding of the active conversation. Kept when the project
+  // closes mid-conversation so reopening it restores this chat; updated
+  // to the current project on every save while one is open.
+  const convProjectPathRef = useRef<string | null>(null)
   const contextSummaryRef = useRef('')
   const summarizedCountRef = useRef(0)
   const messagesRef = useRef<Message[]>([])
@@ -1023,6 +907,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
     // A project materialized from this chat's file writes - bind the
     // conversation to it so it lists under that project from now on.
     if (rootPath && convIdRef.current) {
+      convProjectPathRef.current = rootPath
       void chatHistoryService.setProjectPath(convIdRef.current, rootPath).then(refreshConvList)
     }
     projectResolverRef.current?.(rootPath)
@@ -1035,6 +920,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
   const resetConvState = () => {
     setConvId(null)
     convCreatedAtRef.current = 0
+    convProjectPathRef.current = null
     contextSummaryRef.current = ''
     summarizedCountRef.current = 0
     if (!projectService.getCurrentProject()?.isOpen) configService.setLastNoProjectConv(null)
@@ -1094,6 +980,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
     window.dispatchEvent(new CustomEvent('teaspoon:project-opened', { detail: { rootPath: meta.projectPath } }))
     setConvId(conv.id)
     convCreatedAtRef.current = conv.createdAt
+    convProjectPathRef.current = conv.projectPath
     contextSummaryRef.current = conv.contextSummary ?? ''
     summarizedCountRef.current = conv.summarizedCount ?? 0
     messagesRef.current = conv.messages
@@ -1242,10 +1129,11 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
     const project = projectService.getCurrentProject()
     const id = convIdRef.current ?? chatHistoryService.createId()
     if (!convIdRef.current) setConvId(id)
+    if (project?.isOpen) convProjectPathRef.current = project.rootPath
     await chatHistoryService.save({
       id,
       title: chatHistoryService.deriveTitle(msgs),
-      projectPath: project?.isOpen ? project.rootPath : null,
+      projectPath: convProjectPathRef.current,
       createdAt: convCreatedAtRef.current || (convCreatedAtRef.current = msgs[0]?.timestamp ?? Date.now()),
       updatedAt: Date.now(),
       summarizedCount: summarizedCountRef.current,
@@ -1253,7 +1141,13 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
       messages: msgs,
     })
     await refreshConvList()
-    if (!project?.isOpen) configService.setLastNoProjectConv(id)
+    if (project?.isOpen) {
+      // This conversation is now project-bound - drop any stale pointer
+      // that still names it as the last project-less chat.
+      if (configService.getLastNoProjectConv() === id) configService.setLastNoProjectConv(null)
+    } else {
+      configService.setLastNoProjectConv(id)
+    }
   }
 
   // Load the active conversation once on mount: the project's latest
@@ -1261,13 +1155,22 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const conv = projectPath
-        ? await chatHistoryService.getByProject(projectPath)
+      // Explorer restores the last project asynchronously - this mount can
+      // run before the restore finishes, so wait briefly when a restore
+      // is expected rather than wrongly loading the project-less chat.
+      const project = projectPath
+        ? projectService.getCurrentProject()
+        : configService.getLastProjectPath()
+          ? await waitForProjectOpen(2000)
+          : null
+      const conv = project?.isOpen
+        ? await chatHistoryService.getByProject(project.rootPath)
         : await chatHistoryService.getById(configService.getLastNoProjectConv())
       if (cancelled) return
       if (conv) {
         setConvId(conv.id)
         convCreatedAtRef.current = conv.createdAt
+        convProjectPathRef.current = conv.projectPath
         contextSummaryRef.current = conv.contextSummary ?? ''
         summarizedCountRef.current = conv.summarizedCount ?? 0
         if (conv.messages.length) {

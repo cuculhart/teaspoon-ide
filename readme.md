@@ -240,6 +240,7 @@ Tell the AI to "create a file" or "edit ○○" and it issues file-operation com
 - `// WRITE_FILE: <path>` + `// END_WRITE_FILE` — Create/overwrite a file (via approval dialog)
 - `// EDIT_FILE: <path>` + `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` + `// END_EDIT_FILE` — Partial diff edit (multiple blocks allowed, via approval dialog)
 - `// RUN_COMMAND: <command>` — Run a shell command (via approval dialog; interactive commands work through the PTY)
+- `// CLOSE_PROJECT` — Close the open project (no arguments; same as File > Close Project, no approval needed)
 
 Results are fed back to the AI, which works autonomously over multiple steps and returns a natural-language summary when done.
 

@@ -17,6 +17,7 @@ const CreateProjectModal: React.FC<{
   const [parent, setParent] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [existingCount, setExistingCount] = useState<number | null>(null)
 
   useEffect(() => {
     window.electronAPI?.getDocumentsPath?.()
@@ -29,6 +30,7 @@ const CreateProjectModal: React.FC<{
     if (result?.success && result.folderPath && !result.canceled) {
       setParent(result.folderPath)
       setError('')
+      setExistingCount(null)
     }
   }
 
@@ -42,6 +44,16 @@ const CreateProjectModal: React.FC<{
     const projectPath = `${parent.replace(/[\\/]+$/, '')}/${trimmed}`
     setBusy(true)
     setError('')
+    // mkdir is recursive, so an existing folder succeeds silently. Check
+    // first and warn when the target is a non-empty existing directory.
+    if (existingCount === null) {
+      const existing = await window.electronAPI.readDirectory(projectPath)
+      if (existing.success && existing.items && existing.items.length > 0) {
+        setExistingCount(existing.items.length)
+        setBusy(false)
+        return
+      }
+    }
     const result = await window.electronAPI.createDirectory(projectPath)
     if (!result.success) {
       setError(result.error || t('Failed to create project folder'))
@@ -75,7 +87,7 @@ const CreateProjectModal: React.FC<{
           className="dialog-input"
           placeholder={t('Project name')}
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => { setName(e.target.value); setExistingCount(null) }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleCreate()
             if (e.key === 'Escape') onCancel()
@@ -86,9 +98,15 @@ const CreateProjectModal: React.FC<{
           {parent ? `📁 ${parent}` : `📁 ${t('Choose parent folder...')}`}
         </button>
         {error && <p className="open-error">{error}</p>}
+        {existingCount !== null && (
+          <p className="open-error">
+            {t('This folder already exists and contains {count} item(s). Open it as the project anyway?')
+              .replace('{count}', String(existingCount))}
+          </p>
+        )}
         <div className="dialog-actions">
           <button onClick={handleCreate} disabled={!name.trim() || !parent || busy}>
-            {busy ? t('Creating...') : t('Create & Open')}
+            {busy ? t('Creating...') : existingCount !== null ? t('Open Anyway') : t('Create & Open')}
           </button>
           <button onClick={onCancel} disabled={busy}>{t('Cancel')}</button>
         </div>

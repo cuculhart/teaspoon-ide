@@ -34,6 +34,7 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
   const [newProjectParent, setNewProjectParent] = useState('')
   const [cloneUrl, setCloneUrl] = useState('')
   const [dialogBusy, setDialogBusy] = useState(false)
+  const [existingProjectItems, setExistingProjectItems] = useState<number | null>(null)
   const [newItem, setNewItem] = useState<{ parentPath: string; type: 'file' | 'dir'; depth: number } | null>(null)
   const [newItemName, setNewItemName] = useState('')
 
@@ -289,6 +290,7 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
       setNewProjectParent(result.folderPath)
       localStorage.setItem('last_parent_dir', result.folderPath)
       setOpenError(null)
+      setExistingProjectItems(null)
     }
   }
 
@@ -300,9 +302,19 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
       return
     }
     const projectPath = `${newProjectParent.replace(/[\\/]+$/, '')}/${name}`
+    // mkdir is recursive, so an existing folder succeeds silently. Check
+    // first and warn when the target is a non-empty existing directory.
+    if (existingProjectItems === null) {
+      const existing = await window.electronAPI.readDirectory(projectPath)
+      if (existing.success && existing.items && existing.items.length > 0) {
+        setExistingProjectItems(existing.items.length)
+        return
+      }
+    }
     const result = await window.electronAPI.createDirectory(projectPath)
     if (result.success) {
       setNewProjectName('')
+      setExistingProjectItems(null)
       setDialogMode('open')
       await openProjectByPath(projectPath)
     } else {
@@ -606,6 +618,7 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
     if (mode === 'create' || mode === 'clone') {
       setNewProjectParent(localStorage.getItem('last_parent_dir') || '')
       setNewProjectName('')
+      setExistingProjectItems(null)
     }
     if (mode === 'clone') setCloneUrl('')
     setOpenError(null)
@@ -721,19 +734,25 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
                   className="dialog-input"
                   placeholder={t('Project name')}
                   value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onChange={(e) => { setNewProjectName(e.target.value); setExistingProjectItems(null) }}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleCreateProject() }}
                 />
                 <button className="parent-folder-button" onClick={handleSelectParent}>
                   {newProjectParent ? `📁 ${newProjectParent}` : `📁 ${t('Choose parent folder...')}`}
                 </button>
                 {openError && <p className="open-error">{openError}</p>}
+                {existingProjectItems !== null && (
+                  <p className="open-error">
+                    {t('This folder already exists and contains {count} item(s). Open it as the project anyway?')
+                      .replace('{count}', String(existingProjectItems))}
+                  </p>
+                )}
                 <div className="dialog-actions">
                   <button
                     onClick={handleCreateProject}
                     disabled={!newProjectName.trim() || !newProjectParent}
                   >
-                    {t('Create & Open')}
+                    {existingProjectItems !== null ? t('Open Anyway') : t('Create & Open')}
                   </button>
                   <button onClick={() => setDialogMode('open')}>{t('Back')}</button>
                 </div>

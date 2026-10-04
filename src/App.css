@@ -70,6 +70,9 @@
   border-left: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
+  /* In chat-focus mode this is flex:1 - without min-width:0 a wide
+     unbreakable element inside could hold it wider than the window. */
+  min-width: 0;
 }
 
 /* Chat focus mode: hide the IDE panes (kept mounted so the terminal and

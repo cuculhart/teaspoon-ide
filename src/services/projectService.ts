@@ -6,6 +6,17 @@ class ProjectService {
   private currentProject: Project | null = null
   private openFiles: Map<string, string> = new Map()
   private selectedFiles: Set<string> = new Set()
+  private listeners = new Set<() => void>()
+
+  // Subscribe to open/close transitions. Returns an unsubscribe fn.
+  onChange(cb: () => void): () => void {
+    this.listeners.add(cb)
+    return () => { this.listeners.delete(cb) }
+  }
+
+  private notify(): void {
+    this.listeners.forEach(cb => cb())
+  }
 
   // Normalize path for cache keys so "C:/a/b" and "C:\a\b" match
   private normalizePath(filePath: string): string {
@@ -34,6 +45,7 @@ class ProjectService {
           isOpen: true,
         }
 
+        this.notify()
         return this.currentProject
       }
     }
@@ -44,6 +56,7 @@ class ProjectService {
     this.currentProject = null
     this.openFiles.clear()
     this.selectedFiles.clear()
+    this.notify()
   }
 
   async readFile(filePath: string): Promise<string> {

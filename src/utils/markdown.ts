@@ -62,12 +62,18 @@ export const MARKDOWN_CSS = `
 }
 .markdown-body ul, .markdown-body ol { padding-left: 2em; }
 .markdown-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 0.8em 0;
 }
 .markdown-body th, .markdown-body td {
   border: 1px solid var(--border-color, #d0d7de);
   padding: 6px 12px;
+  /* 'anywhere' (unlike 'break-word') also shrinks the table's
+     min-content width, so the table can fit narrow containers */
+  overflow-wrap: anywhere;
 }
 .markdown-body th { background: rgba(128, 128, 128, 0.12); }
 .markdown-body img { max-width: 100%; }

@@ -123,6 +123,22 @@ function App() {
     window.addEventListener('teaspoon:clear-file-history', clear)
     return () => window.removeEventListener('teaspoon:clear-file-history', clear)
   }, [])
+
+  // Projects closed outside the Explorer's close path (the AI's
+  // CLOSE_PROJECT, a project-less conversation picked from the chat
+  // rail) fire this event - release the open file like a menu close.
+  useEffect(() => {
+    const onExternalClose = () => {
+      if (!projectService.getCurrentProject()?.isOpen) {
+        setSelectedFile(null)
+        setFileContent('')
+        setDiffView(null)
+        setSidebarTab('explorer')
+      }
+    }
+    window.addEventListener('teaspoon:project-opened', onExternalClose)
+    return () => window.removeEventListener('teaspoon:project-opened', onExternalClose)
+  }, [])
   const [sidebarWidth, setSidebarWidth] = useState(250)
   const [chatWidth, setChatWidth] = useState(400)
   const [terminalHeight, setTerminalHeight] = useState(280)
@@ -302,13 +318,16 @@ function App() {
 
   const handleProjectChange = (project: any) => {
     if (!project) {
-      // Project closed: release the open file from the editor
+      // Project closed: release the open file from the editor, but keep
+      // the chat - remounting it here would drop the visible
+      // conversation and reload the last project-less one.
       setSelectedFile(null)
       setFileContent('')
       setDiffView(null)
       setSidebarTab('explorer')
+      return
     }
-    // Force re-render of Chat component when project changes
+    // Force re-render of Chat component when a project opens
     setSettingsKey(prev => prev + 1)
   }
 
