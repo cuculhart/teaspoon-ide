@@ -1,6 +1,7 @@
 const path = require('path')
 const fsSync = require('fs')
 const { setupIpcHandlers } = require('./ipcHandlers')
+const i18n = require('./i18n')
 
 let mainWindow = null
 
@@ -38,128 +39,129 @@ function sendMenuAction(action) {
 
 function buildMenu() {
   const { Menu, dialog } = require('electron')
+  const t = i18n.t
 
   const template = [
     // macOS application menu
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
     {
-      label: 'File',
+      label: t('File'),
       submenu: [
         {
-          label: 'Open Project...',
+          label: t('Open Project...'),
           accelerator: 'CmdOrCtrl+O',
           click: () => sendMenuAction('open-project'),
         },
         {
-          label: 'Clone Repository...',
+          label: t('Clone Repository...'),
           click: () => sendMenuAction('clone-project'),
         },
         {
-          label: 'New Project...',
+          label: t('New Project...'),
           accelerator: 'CmdOrCtrl+Shift+N',
           click: () => sendMenuAction('new-project'),
         },
         {
-          label: 'Open Project Folder',
+          label: t('Open Project Folder'),
           click: () => sendMenuAction('open-project-folder'),
         },
         { type: 'separator' },
         {
-          label: 'New File',
+          label: t('New File'),
           accelerator: 'CmdOrCtrl+N',
           click: () => sendMenuAction('new-file'),
         },
         {
-          label: 'New Folder',
+          label: t('New Folder'),
           accelerator: 'CmdOrCtrl+Shift+F',
           click: () => sendMenuAction('new-folder'),
         },
         { type: 'separator' },
         {
-          label: 'Quick Open...',
+          label: t('Quick Open...'),
           accelerator: 'CmdOrCtrl+P',
           click: () => sendMenuAction('quick-open'),
         },
         { type: 'separator' },
         {
-          label: 'Save',
+          label: t('Save'),
           accelerator: 'CmdOrCtrl+S',
           click: () => sendMenuAction('save-file'),
         },
         {
-          label: 'Export Markdown to PDF...',
+          label: t('Export Markdown to PDF...'),
           click: () => sendMenuAction('export-pdf'),
         },
         {
-          label: 'Export Markdown to HTML...',
+          label: t('Export Markdown to HTML...'),
           click: () => sendMenuAction('export-html'),
         },
         { type: 'separator' },
         {
-          label: 'Close Project',
+          label: t('Close Project'),
           click: () => sendMenuAction('close-project'),
         },
         { type: 'separator' },
-        { role: 'quit', label: 'Exit' },
+        { role: 'quit', label: t('Exit') },
       ],
     },
     {
-      label: 'Edit',
+      label: t('Edit'),
       submenu: [
         {
-          label: 'Undo',
+          label: t('Undo'),
           accelerator: 'CmdOrCtrl+Z',
           click: () => sendMenuAction('undo'),
         },
         {
-          label: 'Redo',
+          label: t('Redo'),
           accelerator: 'CmdOrCtrl+Shift+Z',
           click: () => sendMenuAction('redo'),
         },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
+        { role: 'cut', label: t('Cut') },
+        { role: 'copy', label: t('Copy') },
+        { role: 'paste', label: t('Paste') },
+        { role: 'selectAll', label: t('Select All') },
       ],
     },
     {
-      label: 'View',
+      label: t('View'),
       submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
+        { role: 'reload', label: t('Reload') },
+        { role: 'forceReload', label: t('Force Reload') },
+        { role: 'toggleDevTools', label: t('Toggle Developer Tools') },
         { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
+        { role: 'resetZoom', label: t('Actual Size') },
+        { role: 'zoomIn', label: t('Zoom In') },
+        { role: 'zoomOut', label: t('Zoom Out') },
         { type: 'separator' },
         {
-          label: 'Toggle Terminal',
+          label: t('Toggle Terminal'),
           accelerator: 'CmdOrCtrl+`',
           click: () => sendMenuAction('toggle-terminal'),
         },
         {
-          label: 'Toggle Chat Focus',
+          label: t('Toggle Chat Focus'),
           accelerator: 'CmdOrCtrl+Shift+B',
           click: () => sendMenuAction('toggle-chat-focus'),
         },
         { type: 'separator' },
-        { role: 'togglefullscreen' },
+        { role: 'togglefullscreen', label: t('Toggle Full Screen') },
       ],
     },
     {
-      label: 'Window',
+      label: t('Window'),
       submenu: [
-        { role: 'minimize' },
-        { role: 'close' },
+        { role: 'minimize', label: t('Minimize') },
+        { role: 'close', label: t('Close Window') },
       ],
     },
     {
-      label: 'Help',
+      label: t('Help'),
       submenu: [
         {
-          label: 'About Teaspoon IDE',
+          label: t('About Teaspoon IDE'),
           click: () => sendMenuAction('about'),
         },
       ],
@@ -212,14 +214,15 @@ async function createWindow() {
   // this there is no way to copy selected chat text (Linux/Windows).
   const { Menu } = require('electron')
   mainWindow.webContents.on('context-menu', (e, params) => {
+    const t = i18n.t
     const items = params.isEditable
       ? [
-          { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
-          { role: 'cut' }, { role: 'copy' }, { role: 'paste' },
-          { type: 'separator' }, { role: 'selectAll' },
+          { role: 'undo', label: t('Undo') }, { role: 'redo', label: t('Redo') }, { type: 'separator' },
+          { role: 'cut', label: t('Cut') }, { role: 'copy', label: t('Copy') }, { role: 'paste', label: t('Paste') },
+          { type: 'separator' }, { role: 'selectAll', label: t('Select All') },
         ]
       : params.selectionText.trim()
-        ? [{ role: 'copy' }, { type: 'separator' }, { role: 'selectAll' }]
+        ? [{ role: 'copy', label: t('Copy') }, { type: 'separator' }, { role: 'selectAll', label: t('Select All') }]
         : []
     if (items.length) Menu.buildFromTemplate(items).popup()
   })
@@ -283,6 +286,13 @@ app.whenReady().then(async () => {
     const p = pendingFolderArg
     pendingFolderArg = null
     return p
+  })
+
+  // The renderer owns the language setting (localStorage) - it pushes
+  // changes here so menus and main-process dialogs/error strings follow.
+  ipcMain.on('set-language', (event, code) => {
+    i18n.loadLanguage(code)
+    buildMenu()
   })
 
   setupIpcHandlers()

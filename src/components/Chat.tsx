@@ -88,7 +88,7 @@ function resolveFilePath(inputPath: string): { path?: string; error?: string } {
     // silently pull any file on disk (its contents go straight back to
     // the model). Writes reach this point only after the create-project
     // prompt opens a folder, so denying does not block the write flow.
-    return { error: 'No project is open - file operations are unavailable.' }
+    return { error: i18nService.t('No project is open - file operations are unavailable.') }
   }
 
   const root = project.rootPath.replace(/\\/g, '/').replace(/\/+$/, '')
@@ -101,7 +101,7 @@ function resolveFilePath(inputPath: string): { path?: string; error?: string } {
   const lowerRoot = root.toLowerCase()
   const lowerPath = normalized.toLowerCase()
   if (lowerPath !== lowerRoot && !lowerPath.startsWith(lowerRoot + '/')) {
-    return { error: `Path "${trimmed}" is outside the project root.` }
+    return { error: i18nService.t('Path "{path}" is outside the project root.').replace('{path}', trimmed) }
   }
   return { path: normalized }
 }
@@ -848,7 +848,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
     }
     setMessages((prev) => [...prev, {
       role: 'assistant',
-      content: `↩️ Rolled back ${cp.length} file(s) changed by the last AI operation.`,
+      content: `↩️ ${i18nService.t('Rolled back {count} file(s) changed by the last AI operation.').replace('{count}', String(cp.length))}`,
       timestamp: Date.now(),
     }])
   }
@@ -1613,7 +1613,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         <div className="chat-title">
           <h3>{t('AI Chat')}</h3>
           {currentModel && (
-            <span className="model-badge" title={`Current model: ${currentModel}`}>
+            <span className="model-badge" title={`${t('Current model')}: ${currentModel}`}>
               {currentModel}
             </span>
           )}
@@ -1742,7 +1742,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
           >
             <div className="message-content">
               <div className="message-role">
-                {message.role}
+                {t(message.role)}
                 {message.role === 'assistant' && message.model && ` (${message.model})`}
                 {message.role === 'assistant' && index === messages.length - 1 && !isLoading && (
                   <button
@@ -1768,7 +1768,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         {streamingText && (
           <div className="chat-message assistant">
             <div className="message-content">
-              <div className="message-role">assistant{(activeModel || currentModel) && ` (${activeModel || currentModel})`}</div>
+              <div className="message-role">{t('assistant')}{(activeModel || currentModel) && ` (${activeModel || currentModel})`}</div>
               <div className="message-text">{streamingText}</div>
             </div>
           </div>
@@ -1776,7 +1776,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         {isLoading && (
           <div className="chat-message assistant">
             <div className="message-content">
-              <div className="message-role">assistant{(activeModel || currentModel) && ` (${activeModel || currentModel})`}</div>
+              <div className="message-role">{t('assistant')}{(activeModel || currentModel) && ` (${activeModel || currentModel})`}</div>
               <div className="message-text loading">
                 <span className="loading-dots">{t('Generating response')}</span>
                 <button 

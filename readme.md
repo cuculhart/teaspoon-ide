@@ -72,7 +72,7 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 
 ### Appearance & Settings
 
-- **Theme**: System / Dark / Light (follows OS via nativeTheme)
+- **Theme**: System (follows OS via nativeTheme) / Dark / Light, plus 12 named themes: Organic Light, Muted Ocean, Ancient Console, Walnut, Heritage, Rich Wine, Violet Fizz, Otegami, Soda Float, Modern Syntax eXtensible (MSX), Chaya, Coquette
 - **Font**: Family and size applied across the UI and Monaco
 - **LLM Provider**: Switch between Gemini API (cloud) and Ollama (local, offline) in Settings. Model selection and LiteLLM proxy supported
 - **UI Language**: Switch in Settings > Appearance > Language. Add `lang/<code>.json` to contribute a language — keys are the English source strings
@@ -147,7 +147,7 @@ This app is distributed standalone as **source-available** software (license: FS
 
 ### Chat and Projects
 
-Currently "1 project : 1 chat" — conversations are stored per project in localStorage. Internally they are kept as project → conversation list, so extending to multiple chat tabs is straightforward.
+Currently "1 project : 1 chat" — conversations are persisted as JSON files under `userData/chat-history` (including chats started with no project open). Internally they are kept as project → conversation list, so extending to multiple chat tabs is straightforward.
 
 ### Packaging
 

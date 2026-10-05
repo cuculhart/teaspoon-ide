@@ -126,7 +126,7 @@ const ProcessOutput: React.FC<{
         </span>
         {proc.running && (
           <button className="terminal-kill" onClick={() => onKill(proc.id)} title={i18nService.t('Stop process')}>
-            ■ Stop
+            ■ {i18nService.t('Stop')}
           </button>
         )}
       </div>

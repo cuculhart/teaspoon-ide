@@ -1,4 +1,5 @@
 import { configService } from './configService'
+import { i18nService } from './i18nService'
 
 // Organization (managed) mode client.
 //
@@ -40,7 +41,7 @@ class ManagedService {
   // Throws Error with a user-facing message on failure.
   async login(serverUrl: string, username: string, password: string): Promise<ManagedLoginResult> {
     const base = serverUrl.trim().replace(/\/+$/, '')
-    if (!base) throw new Error('Server URL is not set')
+    if (!base) throw new Error(i18nService.t('Server URL is not set'))
 
     let res: Response
     try {
@@ -51,7 +52,7 @@ class ManagedService {
         signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
       })
     } catch {
-      throw new Error('Could not reach the server. Check the URL and your network connection.')
+      throw new Error(i18nService.t('Could not reach the server. Check the URL and your network connection.'))
     }
 
     let body: any = null
@@ -62,10 +63,10 @@ class ManagedService {
     }
 
     if (!res.ok) {
-      throw new Error(body?.error || `Sign-in failed (HTTP ${res.status})`)
+      throw new Error(body?.error || `${i18nService.t('Sign-in failed')} (HTTP ${res.status})`)
     }
     if (!body?.api_key || typeof body.api_key !== 'string') {
-      throw new Error('The server did not issue an API key')
+      throw new Error(i18nService.t('The server did not issue an API key'))
     }
 
     const models = Array.isArray(body.models)

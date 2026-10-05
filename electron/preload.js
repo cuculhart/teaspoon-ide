@@ -90,6 +90,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Localization
   listLanguages: () => ipcRenderer.invoke('list-languages'),
   loadLanguage: (code) => ipcRenderer.invoke('load-language', code),
+  // Tells the main process which language to use for menus/dialogs
+  setLanguage: (code) => ipcRenderer.send('set-language', code),
 
   // Platform info
   platform: process.platform,

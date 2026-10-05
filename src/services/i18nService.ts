@@ -22,6 +22,9 @@ class I18nService {
   async setLanguage(code: string): Promise<void> {
     this.code = code
     configService.setLanguage(code)
+    // The main process keeps its own copy of the dict for menus,
+    // native dialogs, and IPC error strings.
+    window.electronAPI?.setLanguage?.(code)
     if (code === 'en') {
       this.dict = {}
     } else {

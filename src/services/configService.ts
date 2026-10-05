@@ -10,6 +10,7 @@ const MAX_RECENT_PROJECTS = 10
 
 export type ThemeMode =
   'system' | 'dark' | 'light' | 'quiet' | 'ocean' | 'console' | 'walnut' | 'heritage' | 'wine'
+  | 'fizz' | 'otegami' | 'float' | 'msx' | 'chaya' | 'coquette'
 
 // 'tree' = send only the file list (AI fetches contents via tools).
 // 'full' = send scored file contents up to the token budget (legacy).
@@ -175,7 +176,8 @@ class ConfigService {
 
   getTheme(): ThemeMode {
     const value = this.get('THEME')
-    const modes: ThemeMode[] = ['dark', 'light', 'quiet', 'ocean', 'console', 'walnut', 'heritage', 'wine']
+    const modes: ThemeMode[] = ['dark', 'light', 'quiet', 'ocean', 'console', 'walnut', 'heritage', 'wine',
+      'fizz', 'otegami', 'float', 'msx', 'chaya', 'coquette']
     return modes.includes(value as ThemeMode) ? (value as ThemeMode) : 'system'
   }
 
@@ -456,17 +458,12 @@ class ConfigService {
     }
   }
 
-  // "Clear API Key" in Settings - only the Gemini credentials/proxy are
-  // removed. Theme, provider, and Ollama settings must survive.
-  clear(): void {
+  // "Clear API Key" in Settings - only the secret is removed. Model
+  // selection, custom model name, and proxy URL are user preferences
+  // the owner can change back, so they survive.
+  clearGeminiApiKey(): void {
     this.config.delete('GEMINI_API_KEY')
-    this.config.delete('GEMINI_MODEL')
-    this.config.delete('GEMINI_CUSTOM_MODEL')
-    this.config.delete('LLM_PROXY_URL')
     localStorage.removeItem('gemini_api_key')
-    localStorage.removeItem('gemini_model')
-    localStorage.removeItem('gemini_custom_model')
-    localStorage.removeItem('llm_proxy_url')
   }
 }
 

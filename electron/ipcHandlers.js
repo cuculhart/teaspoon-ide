@@ -5,6 +5,7 @@ const simpleGit = require('simple-git')
 const { spawn } = require('child_process')
 const pty = require('node-pty')
 const { ipcMain, dialog, nativeTheme, shell, BrowserWindow, app } = require('electron')
+const { langDir, t } = require('./i18n')
 
 // Running terminal processes, keyed by a small app-level id
 const runningProcesses = new Map()
@@ -44,7 +45,7 @@ function setupIpcHandlers() {
       const resolvedRoot = path.resolve(rootPath).toLowerCase()
       const resolvedFile = path.resolve(filePath).toLowerCase()
       if (!resolvedFile.startsWith(resolvedRoot + path.sep)) {
-        return { success: false, error: 'Path is outside the project root' }
+        return { success: false, error: t('Path is outside the project root') }
       }
       await fs.unlink(filePath)
       return { success: true }
@@ -209,7 +210,7 @@ function setupIpcHandlers() {
     try {
       resolved = path.resolve(String(rootPath))
       const stat = await fs.stat(resolved)
-      if (!stat.isDirectory()) return { success: false, error: 'Not a directory' }
+      if (!stat.isDirectory()) return { success: false, error: t('Not a directory') }
     } catch (error) {
       return { success: false, error: error.message }
     }
@@ -296,8 +297,8 @@ function setupIpcHandlers() {
     try {
       const result = await dialog.showOpenDialog(event.sender.getOwnerBrowserWindow(), {
         properties: ['openDirectory'],
-        title: 'Select Project Folder',
-        buttonLabel: 'Select Folder',
+        title: t('Select Project Folder'),
+        buttonLabel: t('Select Folder'),
         defaultPath: process.cwd()
       })
       
@@ -385,7 +386,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('chat-history-get', async (event, id) => {
     try {
-      if (!CONV_ID_RE.test(String(id))) return { success: false, error: 'Invalid conversation id' }
+      if (!CONV_ID_RE.test(String(id))) return { success: false, error: t('Invalid conversation id') }
       const raw = await fs.readFile(convFile(id), 'utf-8')
       return { success: true, conversation: JSON.parse(raw) }
     } catch (error) {
@@ -396,9 +397,9 @@ function setupIpcHandlers() {
 
   ipcMain.handle('chat-history-put', async (event, id, json) => {
     try {
-      if (!CONV_ID_RE.test(String(id))) return { success: false, error: 'Invalid conversation id' }
+      if (!CONV_ID_RE.test(String(id))) return { success: false, error: t('Invalid conversation id') }
       if (typeof json !== 'string' || json.length > 20 * 1024 * 1024) {
-        return { success: false, error: 'Invalid payload' }
+        return { success: false, error: t('Invalid payload') }
       }
       await fs.mkdir(CHAT_HISTORY_DIR, { recursive: true, mode: 0o700 })
       // Crash-safe write: temp file + rename, so a killed process can
@@ -424,7 +425,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('chat-history-delete', async (event, id) => {
     try {
-      if (!CONV_ID_RE.test(String(id))) return { success: false, error: 'Invalid conversation id' }
+      if (!CONV_ID_RE.test(String(id))) return { success: false, error: t('Invalid conversation id') }
       await fs.unlink(convFile(id)).catch(() => {})
       const metas = (await readIndex()) ?? []
       await writeJsonAtomic(indexFile(), {
@@ -508,7 +509,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('terminal-kill', (event, id) => {
     const proc = runningProcesses.get(id)
-    if (!proc) return { success: false, error: 'Process not found' }
+    if (!proc) return { success: false, error: t('Process not found') }
     try {
       if (process.platform === 'win32') {
         // Kill the whole tree first (npm/node grandchildren of cmd.exe)
@@ -526,7 +527,7 @@ function setupIpcHandlers() {
   ipcMain.handle('terminal-input', (event, id, data) => {
     const proc = runningProcesses.get(id)
     if (!proc) {
-      return { success: false, error: 'Process not found' }
+      return { success: false, error: t('Process not found') }
     }
     try {
       proc.write(data)
@@ -539,7 +540,7 @@ function setupIpcHandlers() {
   // Resize the PTY to match the xterm.js viewport
   ipcMain.handle('terminal-resize', (event, id, cols, rows) => {
     const proc = runningProcesses.get(id)
-    if (!proc) return { success: false, error: 'Process not found' }
+    if (!proc) return { success: false, error: t('Process not found') }
     try {
       proc.resize(cols, rows)
       return { success: true }
@@ -553,7 +554,7 @@ function setupIpcHandlers() {
     try {
       const owner = event.sender.getOwnerBrowserWindow()
       const result = await dialog.showSaveDialog(owner, {
-        title: 'Export to HTML',
+        title: t('Export to HTML'),
         defaultPath: suggestedName || 'document.html',
         filters: [{ name: 'HTML', extensions: ['html', 'htm'] }],
       })
@@ -587,7 +588,7 @@ function setupIpcHandlers() {
 
       const owner = event.sender.getOwnerBrowserWindow()
       const result = await dialog.showSaveDialog(owner, {
-        title: 'Export to PDF',
+        title: t('Export to PDF'),
         defaultPath: suggestedName || 'document.pdf',
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
       })
@@ -601,15 +602,6 @@ function setupIpcHandlers() {
       return { success: false, error: error.message }
     }
   })
-
-  // Language files live in <resources>/lang in packaged builds and in
-  // <projectRoot>/lang during development, so users can add translations
-  // without rebuilding.
-  function langDir() {
-    return app.isPackaged
-      ? path.join(process.resourcesPath, 'lang')
-      : path.join(app.getAppPath(), 'lang')
-  }
 
   ipcMain.handle('list-languages', async () => {
     const langs = [{ code: 'en', label: 'English' }] // source language is built in
@@ -633,7 +625,7 @@ function setupIpcHandlers() {
   ipcMain.handle('load-language', async (event, code) => {
     try {
       if (!/^[a-zA-Z0-9_-]+$/.test(code)) {
-        return { success: false, error: 'Invalid language code' }
+        return { success: false, error: t('Invalid language code') }
       }
       const raw = await fs.readFile(path.join(langDir(), `${code}.json`), 'utf-8')
       return { success: true, dict: JSON.parse(raw) }
@@ -645,7 +637,7 @@ function setupIpcHandlers() {
   // Open a URL in the system browser (localhost:3000 etc. from dev servers)
   ipcMain.handle('open-external', async (event, url) => {
     if (!/^https?:\/\//i.test(url)) {
-      return { success: false, error: 'Only http(s) URLs are allowed' }
+      return { success: false, error: t('Only http(s) URLs are allowed') }
     }
     try {
       await shell.openExternal(url)
@@ -662,7 +654,7 @@ function setupIpcHandlers() {
       const base = path.resolve(rootPath)
       const resolved = path.resolve(base, target)
       if (resolved !== base && !resolved.startsWith(base + path.sep)) {
-        return { success: false, error: 'Path is outside the project root' }
+        return { success: false, error: t('Path is outside the project root') }
       }
       const err = await shell.openPath(resolved)
       return err ? { success: false, error: err } : { success: true }
@@ -677,7 +669,7 @@ function setupIpcHandlers() {
       nativeTheme.themeSource = theme
       return { success: true }
     }
-    return { success: false, error: `Invalid theme: ${theme}` }
+    return { success: false, error: `${t('Invalid theme')}: ${theme}` }
   })
 
   // Git operations
@@ -742,13 +734,13 @@ function setupIpcHandlers() {
       }
       const branch = String(status.current || '').trim()
       if (!validBranchName(branch)) {
-        return { success: false, error: 'No current branch to push' }
+        return { success: false, error: t('No current branch to push') }
       }
       const remotes = await git.getRemotes(false)
       const remote = remotes.find(item => item.name === 'origin')
         || (remotes.length === 1 ? remotes[0] : null)
       if (!remote || !validRemoteName(remote.name)) {
-        return { success: false, error: 'No upstream remote configured. Use Remote Setup.' }
+        return { success: false, error: t('No upstream remote configured. Use Remote Setup.') }
       }
       await git.raw(['push', '--set-upstream', remote.name, branch])
       return { success: true }
@@ -770,8 +762,8 @@ function setupIpcHandlers() {
   ipcMain.handle('git-clone', async (event, repoUrl, targetPath) => {
     try {
       const url = String(repoUrl || '').trim()
-      if (!validGitArg(url)) return { success: false, error: 'Invalid repository URL' }
-      if (!validGitArg(targetPath)) return { success: false, error: 'Invalid target path' }
+      if (!validGitArg(url)) return { success: false, error: t('Invalid repository URL') }
+      if (!validGitArg(targetPath)) return { success: false, error: t('Invalid target path') }
       await simpleGit().clone(url, targetPath)
       return { success: true }
     } catch (error) {
@@ -792,8 +784,8 @@ function setupIpcHandlers() {
     try {
       const remote = String(name || '').trim()
       const url = String(repoUrl || '').trim()
-      if (!validRemoteName(remote)) return { success: false, error: 'Invalid remote name' }
-      if (!validGitArg(url)) return { success: false, error: 'Invalid repository URL' }
+      if (!validRemoteName(remote)) return { success: false, error: t('Invalid remote name') }
+      if (!validGitArg(url)) return { success: false, error: t('Invalid repository URL') }
       const git = simpleGit(repoPath)
       const remotes = await git.getRemotes(false)
       if (remotes.some(item => item.name === remote)) {
@@ -811,8 +803,8 @@ function setupIpcHandlers() {
     try {
       const remoteName = String(remote || '').trim()
       const branchName = String(branch || '').trim()
-      if (!validRemoteName(remoteName)) return { success: false, error: 'Invalid remote name' }
-      if (!validBranchName(branchName)) return { success: false, error: 'Invalid branch name' }
+      if (!validRemoteName(remoteName)) return { success: false, error: t('Invalid remote name') }
+      if (!validBranchName(branchName)) return { success: false, error: t('Invalid branch name') }
       await simpleGit(repoPath).raw(['push', '--set-upstream', remoteName, branchName])
       return { success: true }
     } catch (error) {
@@ -823,7 +815,7 @@ function setupIpcHandlers() {
   ipcMain.handle('git-config-get', async (event, repoPath, scope) => {
     try {
       if (scope !== 'local' && scope !== 'global') {
-        return { success: false, error: 'Invalid config scope' }
+        return { success: false, error: t('Invalid config scope') }
       }
       const git = simpleGit(repoPath)
       const readKey = async (key) => {
@@ -849,13 +841,13 @@ function setupIpcHandlers() {
   ipcMain.handle('git-config-set', async (event, repoPath, scope, values) => {
     try {
       if (scope !== 'local' && scope !== 'global') {
-        return { success: false, error: 'Invalid config scope' }
+        return { success: false, error: t('Invalid config scope') }
       }
       const git = simpleGit(repoPath)
       const name = String(values?.name || '').trim()
       const email = String(values?.email || '').trim()
-      if (!name) return { success: false, error: 'user.name is required' }
-      if (!email) return { success: false, error: 'user.email is required' }
+      if (!name) return { success: false, error: t('user.name is required') }
+      if (!email) return { success: false, error: t('user.email is required') }
       await git.addConfig('user.name', name, false, scope)
       await git.addConfig('user.email', email, false, scope)
       return { success: true }

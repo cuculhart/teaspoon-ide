@@ -192,14 +192,14 @@ export class GeminiService {
 
   public async sendMessageWithTools(message: string, context?: string): Promise<{ response: string; toolCalls: any[] }> {
     if (!this.isConfigured()) {
-      throw new Error('Gemini API key not configured. Please set your API key in settings.')
+      throw new Error(i18nService.t('Gemini API key not configured. Please set your API key in settings.'))
     }
 
     this.initialize()
 
     const model = this.getModel()
     if (!model) {
-      throw new Error('Failed to initialize Gemini model')
+      throw new Error(i18nService.t('Failed to initialize Gemini model'))
     }
 
     try {
@@ -320,13 +320,13 @@ export class GeminiService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       const managedError = this.describeManagedError(errorMessage)
       if (managedError) throw new Error(managedError)
-      throw new Error(`Failed to get response from Gemini: ${errorMessage}`)
+      throw new Error(`${i18nService.t('Failed to get response from Gemini')}: ${errorMessage}`)
     }
   }
 
   public async sendMessage(message: string, context?: string, history: Array<{role: string, content: string}> = [], modelOverride?: string): Promise<string> {
     if (!this.isConfigured()) {
-      throw new Error('Gemini API key not configured. Please set your API key in settings.')
+      throw new Error(i18nService.t('Gemini API key not configured. Please set your API key in settings.'))
     }
 
     // Reinitialize in case API key was updated
@@ -334,7 +334,7 @@ export class GeminiService {
 
     const model = this.getModel(modelOverride)
     if (!model) {
-      throw new Error('Failed to initialize Gemini model')
+      throw new Error(i18nService.t('Failed to initialize Gemini model'))
     }
 
     try {
@@ -384,7 +384,7 @@ export class GeminiService {
 
       // Check if it's a timeout error
       if (errorMessage.includes('timeout')) {
-        throw new Error('Request timed out. The AI response took too long. Try with a simpler prompt or check your internet connection.')
+        throw new Error(i18nService.t('Request timed out. The AI response took too long. Try with a simpler prompt or check your internet connection.'))
       }
 
       // Check if it's a model not found error and try fallback.
@@ -404,25 +404,25 @@ export class GeminiService {
           } catch (fallbackError) {
             // Restore original model setting
             localStorage.setItem('gemini_model', currentModel)
-            throw new Error(`Model '${currentModel}' is not available. Please check your API key and model access.`)
+            throw new Error(i18nService.t("Model '{model}' is not available. Please check your API key and model access.").replace('{model}', currentModel))
           }
         }
       }
-      
-      throw new Error(`Failed to get response from Gemini: ${errorMessage}`)
+
+      throw new Error(`${i18nService.t('Failed to get response from Gemini')}: ${errorMessage}`)
     }
   }
 
   public async sendMessageStream(message: string, context?: string, history: Array<{role: string, content: string}> = []): Promise<AsyncGenerator<string>> {
     if (!this.isConfigured()) {
-      throw new Error('Gemini API key not configured. Please set your API key in settings.')
+      throw new Error(i18nService.t('Gemini API key not configured. Please set your API key in settings.'))
     }
 
     this.initialize()
 
     const model = this.getModel()
     if (!model) {
-      throw new Error('Failed to initialize Gemini model')
+      throw new Error(i18nService.t('Failed to initialize Gemini model'))
     }
 
     try {
@@ -464,7 +464,7 @@ export class GeminiService {
             tokenCount += chunkText.length
             // Additional safety check for token limit
             if (tokenCount > 10000) { // Hard limit as safety
-              throw new Error('Response too long. Try with a more specific prompt.')
+              throw new Error(i18nService.t('Response too long. Try with a more specific prompt.'))
             }
             yield chunkText
           }
@@ -480,7 +480,7 @@ export class GeminiService {
 
       // Check if it's a timeout error
       if (errorMessage.includes('timeout')) {
-        throw new Error('Request timed out. The AI response took too long. Try with a simpler prompt or check your internet connection.')
+        throw new Error(i18nService.t('Request timed out. The AI response took too long. Try with a simpler prompt or check your internet connection.'))
       }
 
       // Check if it's a model not found error and try fallback.
@@ -495,7 +495,7 @@ export class GeminiService {
         if (fallbackModel) {
           try {
             const result = await this.withTimeout(fallbackModel.generateContentStream(prompt), this.timeout) as any
-            
+
             async function* fallbackStreamGenerator() {
               let tokenCount = 0
               for await (const chunk of result.stream) {
@@ -503,7 +503,7 @@ export class GeminiService {
                 if (chunkText) {
                   tokenCount += chunkText.length
                   if (tokenCount > 10000) {
-                    throw new Error('Response too long. Try with a more specific prompt.')
+                    throw new Error(i18nService.t('Response too long. Try with a more specific prompt.'))
                   }
                   yield chunkText
                 }
@@ -514,12 +514,12 @@ export class GeminiService {
           } catch (fallbackError) {
             // Restore original model setting
             localStorage.setItem('gemini_model', currentModel)
-            throw new Error(`Model '${currentModel}' is not available for streaming. Please check your API key and model access.`)
+            throw new Error(i18nService.t("Model '{model}' is not available for streaming. Please check your API key and model access.").replace('{model}', currentModel))
           }
         }
       }
-      
-      throw new Error(`Failed to get streaming response from Gemini: ${errorMessage}`)
+
+      throw new Error(`${i18nService.t('Failed to get streaming response from Gemini')}: ${errorMessage}`)
     }
   }
 }

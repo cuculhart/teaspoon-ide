@@ -71,7 +71,7 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 
 ### 外観・設定
 
-- **テーマ**: System / Dark / Light（OS設定連動、nativeTheme経由）
+- **テーマ**: System（OS設定連動、nativeTheme経由）/ Dark / Light に加え、12のカラーテーマ: Organic Light、Muted Ocean、Ancient Console、Walnut、Heritage、Rich Wine、Violet Fizz、Otegami、Soda Float、Modern Syntax eXtensible (MSX)、Chaya、Coquette
 - **フォント**: ファミリー・サイズをUI全体とMonacoエディターに反映
 - **LLMプロバイダー**: Gemini API（クラウド）/ Ollama（ローカル・オフライン）を設定画面で切替。モデル選択・LiteLLMプロキシにも対応
 - **UI言語**: Settings > Appearance > Language で切替。`lang/<code>.json` を追加すれば誰でも言語を追加可能
@@ -144,7 +144,7 @@ litellm --model gemini/gemini-3.8-flash --api_key YOUR_REAL_API_KEY
 
 ### チャットとプロジェクトの関係
 
-現在は「1プロジェクト : 1チャット」で、会話はlocalStorageにプロジェクト単位で保存されます。内部的にはプロジェクト→会話リストの構造で保持しているため、複数チャットタブ（1プロジェクト : nチャット）への拡張が容易です。
+現在は「1プロジェクト : 1チャット」で、会話は `userData/chat-history` 配下のJSONファイルとして永続化されます（プロジェクト未オープンの会話を含む）。内部的にはプロジェクト→会話リストの構造で保持しているため、複数チャットタブ（1プロジェクト : nチャット）への拡張が容易です。
 
 ### パッケージ化
 

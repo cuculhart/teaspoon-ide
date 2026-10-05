@@ -40,6 +40,44 @@ const AVAILABLE_MODELS = [
   { id: 'custom', name: 'Custom Model' }
 ]
 
+type SettingsGroupId = 'appearance' | 'aiContext' | 'llmProvider' | 'llmProxy' | 'history'
+
+const SETTINGS_GROUPS_KEY = 'settings_groups'
+
+const DEFAULT_OPEN_GROUPS: Record<SettingsGroupId, boolean> = {
+  appearance: true,
+  aiContext: true,
+  llmProvider: true,
+  llmProxy: false,
+  history: false,
+}
+
+const loadOpenGroups = (): Record<SettingsGroupId, boolean> => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_GROUPS_KEY) || '{}')
+    return { ...DEFAULT_OPEN_GROUPS, ...saved }
+  } catch {
+    return DEFAULT_OPEN_GROUPS
+  }
+}
+
+interface SettingsGroupProps {
+  title: string
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}
+
+const SettingsGroup: React.FC<SettingsGroupProps> = ({ title, open, onToggle, children }) => (
+  <section className="settings-group">
+    <button type="button" className="settings-group-header" onClick={onToggle} aria-expanded={open}>
+      <span className={`settings-group-chevron${open ? ' open' : ''}`}>▸</span>
+      <span className="settings-group-title">{title}</span>
+    </button>
+    {open && <div className="settings-group-body">{children}</div>}
+  </section>
+)
+
 const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [apiKey, setApiKey] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
@@ -53,6 +91,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [fontSize, setFontSize] = useState('')
   const [historyCleared, setHistoryCleared] = useState(false)
   const [chatHistoryCleared, setChatHistoryCleared] = useState(false)
+  const [confirmClearApiKey, setConfirmClearApiKey] = useState(false)
   const [confirmClearChatHistory, setConfirmClearChatHistory] = useState(false)
   const [contextMode, setContextMode] = useState<ContextMode>('tree')
   const [contextMaxFiles, setContextMaxFiles] = useState('2000')
@@ -71,7 +110,16 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [managedUser, setManagedUser] = useState<string | undefined>(undefined)
   const [managedModels, setManagedModels] = useState<string[]>([])
   const [managedModel, setManagedModel] = useState('')
+  const [openGroups, setOpenGroups] = useState<Record<SettingsGroupId, boolean>>(loadOpenGroups)
   const t = useT()
+
+  const toggleGroup = (id: SettingsGroupId) => {
+    setOpenGroups(prev => {
+      const next = { ...prev, [id]: !prev[id] }
+      localStorage.setItem(SETTINGS_GROUPS_KEY, JSON.stringify(next))
+      return next
+    })
+  }
 
   useEffect(() => {
     // Load saved settings
@@ -144,7 +192,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
 
   const handleClear = () => {
     setApiKey('')
-    configService.clear()
+    configService.clearGeminiApiKey()
+    setConfirmClearApiKey(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     window.dispatchEvent(new Event('teaspoon:llm-changed'))
@@ -285,8 +334,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
         </div>
         
         <div className="settings-content">
-          <div className="setting-section">
-            <h3>{t('Appearance')}</h3>
+          <SettingsGroup title={t('Appearance')} open={openGroups.appearance} onToggle={() => toggleGroup('appearance')}>
             <p className="setting-description">
               {t('Changes apply immediately and are saved automatically.')}
             </p>
@@ -325,6 +373,12 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 <option value="walnut">{t('Walnut')}</option>
                 <option value="heritage">{t('Heritage')}</option>
                 <option value="wine">{t('Rich Wine')}</option>
+                <option value="fizz">{t('Violet Fizz')}</option>
+                <option value="otegami">{t('Otegami')}</option>
+                <option value="float">{t('Soda Float')}</option>
+                <option value="msx">{t('Modern Syntax eXtensible')}</option>
+                <option value="chaya">{t('Chaya')}</option>
+                <option value="coquette">{t('Coquette')}</option>
               </select>
             </div>
 
@@ -354,10 +408,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
               />
               <span className="appearance-unit">px</span>
             </div>
-          </div>
+          </SettingsGroup>
 
-          <div className="setting-section">
-            <h3>{t('AI Context')}</h3>
+          <SettingsGroup title={t('AI Context')} open={openGroups.aiContext} onToggle={() => toggleGroup('aiContext')}>
             <p className="setting-description">
               {t('What the app sends to the AI as project context on each message. Applies immediately; changes apply on the next message.')}
             </p>
@@ -402,10 +455,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 <span>{t('Summarize long conversations (one extra AI request per turn)')}</span>
               </label>
             </div>
-          </div>
+          </SettingsGroup>
 
-          <div className="setting-section">
-            <h3>{t('LLM Provider')}</h3>
+          <SettingsGroup title={t('LLM Provider')} open={openGroups.llmProvider} onToggle={() => toggleGroup('llmProvider')}>
             <p className="setting-description">
               {t('Choose the AI backend. Applies immediately - no Save needed.')}
             </p>
@@ -470,7 +522,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 </p>
               </>
             )}
-          </div>
 
           {provider === 'gemini' && (
           <>
@@ -517,7 +568,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
               >
                 {AVAILABLE_MODELS.map(model => (
                   <option key={model.id} value={model.id}>
-                    {model.name}
+                    {t(model.name)}
                   </option>
                 ))}
               </select>
@@ -533,7 +584,13 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
               )}
             </div>
           </div>
-          
+
+          </>
+          )}
+          </SettingsGroup>
+
+          <SettingsGroup title={t('LLM Proxy')} open={openGroups.llmProxy} onToggle={() => toggleGroup('llmProxy')}>
+          {provider === 'gemini' && (
           <div className="setting-section">
             <h3>{t('LLM Proxy (LiteLLM)')}</h3>
             <p className="setting-description">
@@ -561,13 +618,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                   className="proxy-url-field"
                 />
                 <p className="setting-description">
-                  Example: http://localhost:4000 or https://your-proxy.com
+                  {t('Example: http://localhost:4000 or https://your-proxy.com')}
                 </p>
               </div>
             )}
           </div>
-          
-          </>
           )}
 
           <div className="setting-section">
@@ -632,9 +687,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
               </div>
             )}
           </div>
+          </SettingsGroup>
 
-          <div className="setting-section">
-            <h3>{t('History')}</h3>
+          <SettingsGroup title={t('History')} open={openGroups.history} onToggle={() => toggleGroup('history')}>
             <p className="setting-description">
               {t('Clear the Recent Projects list (Explorer) and recently opened files (Quick Open). Projects, chats, and settings are kept.')}
             </p>
@@ -664,7 +719,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 {chatHistoryCleared ? `✓ ${t('Cleared')}` : t('Clear All Chat History')}
               </button>
             )}
-          </div>
+          </SettingsGroup>
 
           {/* Nothing needs a manual Save for Ollama - every setting there
               applies on change. The buttons only manage Gemini settings. */}
@@ -677,13 +732,24 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
             >
               {saved ? `✓ ${t('Saved')}` : t('Save Settings')}
             </button>
-            <button 
-              className="clear-button" 
-              onClick={handleClear}
-              disabled={!apiKey}
-            >
-              {t('Clear API Key')}
-            </button>
+            {confirmClearApiKey ? (
+              <>
+                <button className="clear-button" onClick={handleClear}>
+                  {t('Confirm Clear')}
+                </button>
+                <button className="clear-button" onClick={() => setConfirmClearApiKey(false)}>
+                  {t('Cancel')}
+                </button>
+              </>
+            ) : (
+              <button 
+                className="clear-button" 
+                onClick={() => setConfirmClearApiKey(true)}
+                disabled={!apiKey}
+              >
+                {t('Clear API Key')}
+              </button>
+            )}
           </div>
           )}
         </div>

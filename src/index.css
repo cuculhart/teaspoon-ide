@@ -233,6 +233,184 @@
   --shadow: rgba(0, 0, 0, 0.4);
 }
 
+/* Violet Fizz: deep violet cocktail base with moon-yellow accent and
+   neon-blue keywords - a bar-lit glass of violet fizz */
+[data-theme='fizz'] {
+  color-scheme: dark;
+  --bg-primary: #251c35;
+  --bg-secondary: #1e162b;
+  --bg-tertiary: #33254a;
+  --bg-deep: #191124;
+  --bg-hover: #332547;
+  --bg-active: #3d2c57;
+  --bg-hover-strong: #4a3568;
+  --border-color: #3f2f5c;
+  --border-strong: #5a4480;
+  --text-primary: #ece6f0;
+  --text-secondary: #d4cbe0;
+  --text-tertiary: #8f80a6;
+  --text-muted: #6b5b85;
+  --accent: #ffea00;
+  --accent-hover: #ffe733;
+  --on-accent: #241a30;
+  --accent-soft: #463d1f;
+  --selected-bg: #4a3a6e;
+  --error: #ff5f7a;
+  --error-hover: #ff7590;
+  --diff-added: #6fcf97;
+  --diff-removed: #ff6b7f;
+  --overlay-bg: rgba(0, 0, 0, 0.5);
+  --shadow: rgba(0, 0, 0, 0.4);
+}
+
+/* Otegami: warm washi paper with soot-ink text and vermilion accents -
+   a letter written on Japanese paper */
+[data-theme='otegami'] {
+  color-scheme: light;
+  --bg-primary: #f3eeda;
+  --bg-secondary: #ede9dc;
+  --bg-tertiary: #e6dfc9;
+  --bg-deep: #f9f6ec;
+  --bg-hover: #e8e1cc;
+  --bg-active: #ded6bb;
+  --bg-hover-strong: #d2c8ab;
+  --border-color: #d8ceba;
+  --border-strong: #b5a98e;
+  --text-primary: #2b2b2b;
+  --text-secondary: #4a453c;
+  --text-tertiary: #8a8272;
+  --text-muted: #a39e93;
+  --accent: #b8261e;
+  --accent-hover: #9e1f19;
+  --accent-soft: #eadfd0;
+  --selected-bg: #dcd2b8;
+  --error: #9e2a1f;
+  --error-hover: #84211a;
+  --diff-added: #5e7a46;
+  --diff-removed: #a83226;
+  --overlay-bg: rgba(0, 0, 0, 0.4);
+  --shadow: rgba(60, 40, 20, 0.2);
+}
+
+/* Soda Float: mid sky-blue soda water with ink-black text and a
+   lemon-yellow accent - pale foam colors float on the surface */
+[data-theme='float'] {
+  color-scheme: light;
+  --bg-primary: #75b1de;
+  --bg-secondary: #66a2d1;
+  --bg-tertiary: #5793c4;
+  --bg-deep: #85bfe8;
+  --bg-hover: #5f9acb;
+  --bg-active: #5289b8;
+  --bg-hover-strong: #487cad;
+  --border-color: #5a97c2;
+  --border-strong: #3d7aa8;
+  --text-primary: #121416;
+  --text-secondary: #1c3f52;
+  --text-tertiary: #2f5464;
+  --text-muted: #4a6a7a;
+  --accent: #ffd600;
+  --accent-hover: #e6c000;
+  --on-accent: #121416;
+  --accent-soft: #e6dda8;
+  --selected-bg: #5793c4;
+  --error: #b0341f;
+  --error-hover: #8f2818;
+  --diff-added: #1e7a4a;
+  --diff-removed: #b0341f;
+  --overlay-bg: rgba(0, 0, 0, 0.4);
+  --shadow: rgba(0, 30, 60, 0.25);
+}
+
+/* Modern Syntax eXtensible (MSX): saturated MSX-blue screen with white
+   text - modernized 16-color-palette brights on the classic blue */
+[data-theme='msx'] {
+  color-scheme: dark;
+  --bg-primary: #2438d8;
+  --bg-secondary: #1d2cb8;
+  --bg-tertiary: #2e46d8;
+  --bg-deep: #1827a5;
+  --bg-hover: #2c42cc;
+  --bg-active: #3a50e0;
+  --bg-hover-strong: #4a5ce0;
+  --border-color: #4a5ce0;
+  --border-strong: #6a7ae8;
+  --text-primary: #ffffff;
+  --text-secondary: #e0e8ff;
+  --text-tertiary: #a8b8f0;
+  --text-muted: #7f92cc;
+  --accent: #dff2e4;
+  --accent-hover: #c8e8d0;
+  --on-accent: #141f7a;
+  --accent-soft: #33408e;
+  --selected-bg: #3d50e8;
+  --error: #ff7a8a;
+  --error-hover: #ff8f9c;
+  --diff-added: #7ef0a8;
+  --diff-removed: #ff7a8a;
+  --overlay-bg: rgba(0, 0, 20, 0.5);
+  --shadow: rgba(0, 0, 30, 0.4);
+}
+
+/* Chaya: deep tea-field green with warm off-white text - new-leaf
+   keywords, jade functions, plum-blossom numbers */
+[data-theme='chaya'] {
+  color-scheme: dark;
+  --bg-primary: #11241b;
+  --bg-secondary: #0d1c15;
+  --bg-tertiary: #1c3527;
+  --bg-deep: #0a1812;
+  --bg-hover: #1a3226;
+  --bg-active: #24402f;
+  --bg-hover-strong: #2c4a38;
+  --border-color: #2c4a38;
+  --border-strong: #3d6048;
+  --text-primary: #e6ecdd;
+  --text-secondary: #cfd8c2;
+  --text-tertiary: #7a927f;
+  --text-muted: #5f7a68;
+  --accent: #e8c04a;
+  --accent-hover: #f0cd5e;
+  --on-accent: #1a2410;
+  --accent-soft: #313a20;
+  --selected-bg: #2c4a38;
+  --error: #d96a4e;
+  --error-hover: #e87a5e;
+  --diff-added: #6fa860;
+  --diff-removed: #c96a54;
+  --overlay-bg: rgba(0, 10, 5, 0.5);
+  --shadow: rgba(0, 8, 4, 0.4);
+}
+
+/* Coquette: pale blush with plum-chocolate text and satin-rose accents -
+   ribbons and lace, kept readable */
+[data-theme='coquette'] {
+  color-scheme: light;
+  --bg-primary: #fdf3f6;
+  --bg-secondary: #f8e4ec;
+  --bg-tertiary: #f2d4e0;
+  --bg-deep: #fff9fb;
+  --bg-hover: #f5dbe6;
+  --bg-active: #efcddd;
+  --bg-hover-strong: #e8bfd0;
+  --border-color: #e6c3d1;
+  --border-strong: #d4a0b5;
+  --text-primary: #5c3a45;
+  --text-secondary: #6e4a56;
+  --text-tertiary: #a07a88;
+  --text-muted: #b89aa4;
+  --accent: #d94f80;
+  --accent-hover: #c03a6a;
+  --accent-soft: #f8d8e6;
+  --selected-bg: #f2d4e0;
+  --error: #c22440;
+  --error-hover: #a01a33;
+  --diff-added: #4e8a55;
+  --diff-removed: #c92a45;
+  --overlay-bg: rgba(60, 20, 35, 0.4);
+  --shadow: rgba(80, 30, 50, 0.2);
+}
+
 * {
   margin: 0;
   padding: 0;

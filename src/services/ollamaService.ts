@@ -1,4 +1,5 @@
 import { configService } from './configService'
+import { i18nService } from './i18nService'
 import { projectService } from './projectService'
 import {
   AGENT_SYSTEM_PROMPT,
@@ -100,20 +101,20 @@ class OllamaService {
       })
     } catch (error: any) {
       throw new Error(
-        `Cannot reach Ollama at ${this.getBaseUrl()} - is Ollama running? (${error.message || error})`,
+        `${i18nService.t('Cannot reach Ollama at {url} - is Ollama running?').replace('{url}', this.getBaseUrl())} (${error.message || error})`,
       )
     }
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
-      throw new Error(`Ollama error ${res.status}: ${body.slice(0, 300) || res.statusText}`)
+      throw new Error(`${i18nService.t('Ollama error')} ${res.status}: ${body.slice(0, 300) || res.statusText}`)
     }
 
     if (!onDelta || !res.body) {
       const data = await res.json()
       const text = data?.choices?.[0]?.message?.content
       if (typeof text !== 'string' || !text) {
-        throw new Error('Ollama returned an empty response')
+        throw new Error(i18nService.t('Ollama returned an empty response'))
       }
       return text
     }
@@ -152,7 +153,7 @@ class OllamaService {
       }
     }
     if (!full) {
-      throw new Error('Ollama returned an empty response')
+      throw new Error(i18nService.t('Ollama returned an empty response'))
     }
     return full
   }

@@ -22,7 +22,10 @@
 
 [data-theme='light'] .about-app-name,
 [data-theme='quiet'] .about-app-name,
-[data-theme='heritage'] .about-app-name {
+[data-theme='heritage'] .about-app-name,
+[data-theme='otegami'] .about-app-name,
+[data-theme='float'] .about-app-name,
+[data-theme='coquette'] .about-app-name {
   /* Darker amber for contrast on light backgrounds */
   color: #a57400;
 }

@@ -76,6 +76,54 @@
   color: var(--text-secondary);
 }
 
+.settings-group {
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.settings-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-active);
+  border: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.settings-group-header:hover {
+  background: var(--bg-hover-strong);
+}
+
+.settings-group-chevron {
+  display: inline-block;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  transition: transform 0.15s;
+}
+
+.settings-group-chevron.open {
+  transform: rotate(90deg);
+}
+
+.settings-group-body {
+  padding: 14px 14px 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.settings-group-body .setting-section:last-child {
+  margin-bottom: 14px;
+}
+
 .setting-description {
   margin: 0 0 15px 0;
   font-size: 13px;

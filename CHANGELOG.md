@@ -5,6 +5,54 @@ All notable changes to Teaspoon IDE are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-10-05
+
+### Added
+
+- Six new color themes, selectable under Settings > Appearance >
+  Theme: Violet Fizz (`fizz`, dark), Otegami (`otegami`, light washi
+  paper with vermilion accents), Soda Float (`float`, light sky-blue
+  soda), Modern Syntax eXtensible (`msx`, dark saturated blue screen
+  with white text and bright palette colors), Chaya (`chaya`, dark
+  tea-field green), and Coquette (`coquette`, light blush pink). Each
+  ships with a matching Monaco editor theme; Otegami, Soda Float, and
+  Coquette report as light themes to the OS chrome.
+- The application menu, the right-click context menu, and native
+  dialogs (folder picker, HTML/PDF export save dialogs) now follow the
+  UI language instead of always being English. The selected language
+  lives in the renderer's localStorage, which the main process cannot
+  read, so the renderer pushes it over a new `set-language` IPC; the
+  main process keeps its own copy of the `lang/<code>.json` dictionary
+  and rebuilds the menu whenever the language changes. Menus appear in
+  English for the brief window before the renderer reports the saved
+  language at startup.
+- Settings dialog sections are now grouped into collapsible panels
+  (Appearance, AI Context, LLM Provider, LLM Proxy, History), so the
+  growing list of options no longer scrolls as one flat page. The
+  Gemini API key and model selection live under LLM Provider, and the
+  LiteLLM proxy and organization sign-in under LLM Proxy. Collapsed
+  state is remembered across restarts; LLM Proxy and History start
+  collapsed.
+
+### Fixed
+
+- Clear API Key in Settings now asks for a second click (Confirm /
+  Cancel), matching the existing two-step confirm on Clear All Chat
+  History. It also no longer wipes the model selection, custom model
+  name, and proxy URL along with the key - those are user preferences
+  the owner can change back, so only the secret is removed.
+- Filled out `lang/ja.json` (~90 keys) and routed the remaining
+  hardcoded English through `t()`, so a Japanese UI no longer shows
+  English in: the File/Edit/View/Window/Help menus and their items
+  (Cut/Copy/Paste, zoom, fullscreen, ...), IPC error strings (invalid
+  remote/branch/config names, "process not found", "path outside the
+  project root", ...), Gemini/Ollama/organization sign-in error
+  messages, the Settings model dropdown labels and proxy example line,
+  the terminal "Stop" button, the rollback notice, the "Current model"
+  tooltip, the user/assistant role labels on chat messages, the
+  path-rejection reasons shown in chat notes, and the About dialog's
+  "Version" label.
+
 ## [0.9.1] - 2026-10-04
 
 ### Added

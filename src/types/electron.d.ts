@@ -49,6 +49,7 @@ export interface ElectronAPI {
   getPathForFile: (file: File) => string
   listLanguages: () => Promise<{ success: boolean; languages?: Array<{ code: string; label: string }>; error?: string }>
   loadLanguage: (code: string) => Promise<{ success: boolean; dict?: Record<string, string>; error?: string }>
+  setLanguage: (code: string) => void
   platform: string
 }
 
