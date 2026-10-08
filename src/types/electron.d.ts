@@ -5,6 +5,7 @@ export interface ElectronAPI {
   createDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>
   deleteFile: (rootPath: string, filePath: string) => Promise<{ success: boolean; error?: string }>
   selectFolder: () => Promise<{ success: boolean; folderPath?: string; canceled?: boolean; error?: string }>
+  registerProjectRoot: (dirPath: string) => Promise<{ success: boolean }>
   getDocumentsPath: () => Promise<{ success: boolean; path?: string; error?: string }>
   chatHistoryList: () => Promise<{ success: boolean; conversations?: Array<{ id: string; title: string; projectPath: string | null; createdAt: number; updatedAt: number; messageCount: number }>; error?: string }>
   chatHistoryGet: (id: string) => Promise<{ success: boolean; conversation?: unknown; error?: string }>

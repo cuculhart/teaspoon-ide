@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createDirectory: (dirPath) => ipcRenderer.invoke('create-directory', dirPath),
   deleteFile: (rootPath, filePath) => ipcRenderer.invoke('delete-file', rootPath, filePath),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  registerProjectRoot: (dirPath) => ipcRenderer.invoke('register-project-root', dirPath),
   getDocumentsPath: () => ipcRenderer.invoke('documents-path'),
 
   // Chat history (scoped to userData/chat-history by the main process)

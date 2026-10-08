@@ -302,6 +302,10 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
       return
     }
     const projectPath = `${newProjectParent.replace(/[\\/]+$/, '')}/${name}`
+    // The parent may come from persisted 'last_parent_dir' rather than a
+    // folder dialog this session - register it so main-process path
+    // confinement lets the peek/create through.
+    await window.electronAPI.registerProjectRoot?.(newProjectParent)
     // mkdir is recursive, so an existing folder succeeds silently. Check
     // first and warn when the target is a non-empty existing directory.
     if (existingProjectItems === null) {
@@ -347,6 +351,9 @@ const Explorer: React.FC<ExplorerProps> = ({ onFileSelect, onProjectChange }) =>
     setDialogBusy(true)
     setOpenError(null)
     try {
+      // Same as handleCreateProject - a persisted parent dir needs
+      // explicit registration for main-process path confinement.
+      await window.electronAPI.registerProjectRoot?.(newProjectParent)
       const result = await window.electronAPI.gitClone(cloneUrl.trim(), projectPath)
       if (result.success) {
         setNewProjectName('')

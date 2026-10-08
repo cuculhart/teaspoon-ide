@@ -83,6 +83,8 @@
   "Unknown command - asking the model to retry": "不明なコマンド - モデルに再送させています",
   "Result block imitated - asking the model to retry": "実行結果の模倣を検出 - モデルに再送させています",
   "Code shown but not written - asking the model to retry": "コードが表示されただけで書き込まれていません - モデルに再送させています",
+  "Deferred to a later response - asking the model to continue now": "次の応答への延期を検出 - モデルに継続させています",
+  "opened while work was still unresolved": "未解決の作業が残ったまま起動されました",
   "Error writing file": "ファイル書き込みエラー",
   "still running after timeout (visible in the Terminal panel; the user can type stdin input there if the program is interactive)": "タイムアウト後も実行中（ターミナルパネルで確認できます。対話型プログラムならstdin入力も可能です）",
   "exit code": "終了コード",

@@ -1,6 +1,6 @@
 const path = require('path')
 const fsSync = require('fs')
-const { setupIpcHandlers } = require('./ipcHandlers')
+const { setupIpcHandlers, registerAllowedRoot } = require('./ipcHandlers')
 const i18n = require('./i18n')
 
 let mainWindow = null
@@ -23,6 +23,9 @@ function extractArgFolder(argv) {
 }
 
 let pendingFolderArg = extractArgFolder(process.argv)
+// A folder handed to the app via CLI / exe drop is user-consented - let the
+// filesystem IPCs touch it once the renderer opens it.
+if (pendingFolderArg) registerAllowedRoot(pendingFolderArg)
 
 function sendFolderArg() {
   if (pendingFolderArg && mainWindow) {

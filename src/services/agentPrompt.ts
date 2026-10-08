@@ -76,6 +76,7 @@ RULES for RUN_COMMAND:
 - Long-running servers (npm start, docker compose up) will time out but keep running; check their early output instead of waiting for exit.
 - To open a file or URL in the user's default web browser, emit "// RUN_COMMAND: <opener> <target>" using only the opener named in the host-OS note. Do not combine different opener names, do not explain the steps on that line, and put no text after <target>. A URL such as http://localhost:3000 works in place of the file path.
 - Only open or run a file that exists. If the file does not exist yet, emit WRITE_FILE first and the opener afterwards (commands run in order, so both may appear in one reply).
+- Do NOT launch the result on your own initiative: never emit an opener command ("start", "open", "xdg-open") or start an app after creating/editing files unless the user asked to run, open, or preview it. The user may still be planning follow-up changes, and opening a half-finished app wastes their time - instead tell them how to open it themselves.
 - Destructive commands (deleting files, modifying system state) may be rejected by the user.
 
 If the user asks you to close the project, use this format:

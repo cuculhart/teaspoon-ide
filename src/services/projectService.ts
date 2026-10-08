@@ -29,6 +29,10 @@ class ProjectService {
 
   async openProject(rootPath: string): Promise<Project> {
     if (window.electronAPI) {
+      // Grant main-process file access to this root before listing it -
+      // opens that skip the folder dialog (recent list, drop, CLI) land
+      // here without a native-consent path.
+      await window.electronAPI.registerProjectRoot?.(rootPath)
       const result = await window.electronAPI.readDirectory(rootPath)
       if (result.success && result.items) {
         const projectName = rootPath.split(/[/\\]/).pop() || rootPath

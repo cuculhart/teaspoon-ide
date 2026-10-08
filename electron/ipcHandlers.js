@@ -17,10 +17,62 @@ const watcherHookedSenders = new Set()
 const WATCH_DEBOUNCE_MS = 300
 const MAX_WATCH_DIRS = 2000
 
+// Directories the renderer may touch through IPC. Roots are registered
+// only by paths that carry user consent - native dialog results, the CLI /
+// pending-folder open, a successful create/clone - or by the explicit
+// 'register-project-root' call the renderer makes when opening a project.
+// The renderer already confines agent paths to the open project
+// (resolveFilePath in Chat.tsx); this is a second check so an injected or
+// malformed path cannot escape even if that layer is bypassed. It is
+// defense-in-depth, not a sandbox boundary: a fully compromised renderer
+// could still call register-project-root itself.
+const allowedRoots = new Set()
+
+const normalizeFsPath = (p) =>
+  path.resolve(String(p)).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+
+function registerAllowedRoot(p) {
+  try {
+    allowedRoots.add(normalizeFsPath(p))
+  } catch { /* not a usable path - ignore */ }
+}
+
+function isWithinAllowedRoot(p) {
+  const n = normalizeFsPath(p)
+  for (const r of allowedRoots) {
+    if (n === r || n.startsWith(r + '/')) return true
+  }
+  return false
+}
+
+// Creating or peeking at a brand-new project folder is allowed when the
+// target is inside a registered root, or when its parent is a registered
+// root / the user's Documents folder - matching the create-project and
+// clone flows in the UI.
+function isAllowedNewDirectory(p) {
+  if (isWithinAllowedRoot(p)) return true
+  const parent = normalizeFsPath(path.dirname(path.resolve(String(p))))
+  if (allowedRoots.has(parent)) return true
+  try {
+    return parent === normalizeFsPath(app.getPath('documents'))
+  } catch { return false }
+}
+
+const deniedPath = () => ({ success: false, error: t('Path is outside the allowed folders') })
+
 function setupIpcHandlers() {
   // File system operations
+  // The renderer registers each project folder it opens. Consent-proof
+  // registration happens via native dialogs / CLI args / create & clone;
+  // this call covers opens that never pass a dialog (recent list, drop).
+  ipcMain.handle('register-project-root', async (event, dirPath) => {
+    registerAllowedRoot(dirPath)
+    return { success: true }
+  })
+
   ipcMain.handle('read-file', async (event, filePath) => {
     try {
+      if (!isWithinAllowedRoot(filePath)) return deniedPath()
       const content = await fs.readFile(filePath, 'utf-8')
       return { success: true, content }
     } catch (error) {
@@ -30,6 +82,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('write-file', async (event, filePath, content) => {
     try {
+      if (!isWithinAllowedRoot(filePath)) return deniedPath()
       await fs.mkdir(path.dirname(filePath), { recursive: true })
       await fs.writeFile(filePath, content, 'utf-8')
       return { success: true }
@@ -47,6 +100,7 @@ function setupIpcHandlers() {
       if (!resolvedFile.startsWith(resolvedRoot + path.sep)) {
         return { success: false, error: t('Path is outside the project root') }
       }
+      if (!isWithinAllowedRoot(filePath)) return deniedPath()
       await fs.unlink(filePath)
       return { success: true }
     } catch (error) {
@@ -56,7 +110,9 @@ function setupIpcHandlers() {
 
   ipcMain.handle('create-directory', async (event, dirPath) => {
     try {
+      if (!isAllowedNewDirectory(dirPath)) return deniedPath()
       await fs.mkdir(dirPath, { recursive: true })
+      registerAllowedRoot(dirPath)
       return { success: true }
     } catch (error) {
       return { success: false, error: error.message }
@@ -65,6 +121,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('read-directory', async (event, dirPath) => {
     try {
+      if (!isAllowedNewDirectory(dirPath)) return deniedPath()
       const entries = await fs.readdir(dirPath, { withFileTypes: true })
       const items = entries.map(entry => ({
         name: entry.name,
@@ -112,6 +169,7 @@ function setupIpcHandlers() {
   // Content search across the project (AI "grep" tool)
   ipcMain.handle('search-files', async (event, rootPath, pattern) => {
     try {
+      if (!isWithinAllowedRoot(rootPath)) return deniedPath()
       const files = []
       await walkFiles(rootPath, rootPath, files)
 
@@ -155,6 +213,7 @@ function setupIpcHandlers() {
   // Path search across the project (AI "find files" tool / Quick Open)
   ipcMain.handle('find-files', async (event, rootPath, pattern, maxResults) => {
     try {
+      if (!isWithinAllowedRoot(rootPath)) return deniedPath()
       const files = []
       await walkFiles(rootPath, rootPath, files)
       const limit = typeof maxResults === 'number' && maxResults > 0
@@ -205,6 +264,8 @@ function setupIpcHandlers() {
   ipcMain.handle('watch-project', async (event, rootPath) => {
     const sender = event.sender
     stopProjectWatch(sender.id)
+
+    if (!isWithinAllowedRoot(rootPath)) return deniedPath()
 
     let resolved
     try {
@@ -305,7 +366,8 @@ function setupIpcHandlers() {
       if (result.canceled || result.filePaths.length === 0) {
         return { success: false, canceled: true }
       }
-      
+
+      registerAllowedRoot(result.filePaths[0])
       return { success: true, folderPath: result.filePaths[0] }
     } catch (error) {
       return { success: false, error: error.message }
@@ -473,6 +535,7 @@ function setupIpcHandlers() {
   // runningProcesses until they exit or are killed.
   ipcMain.handle('terminal-run', (event, cwd, command) => {
     try {
+      if (!isWithinAllowedRoot(cwd)) return deniedPath()
       const id = `proc-${nextProcessId++}`
       const sender = event.sender
       const send = (channel, payload) => {
@@ -651,6 +714,7 @@ function setupIpcHandlers() {
   // Confined to the project root, same policy as file writes.
   ipcMain.handle('open-path', async (event, rootPath, target) => {
     try {
+      if (!isWithinAllowedRoot(rootPath)) return deniedPath()
       const base = path.resolve(rootPath)
       const resolved = path.resolve(base, target)
       if (resolved !== base && !resolved.startsWith(base + path.sep)) {
@@ -679,6 +743,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-status', async (event, repoPath) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       const status = await git.status()
       const hasCommits = await git.revparse(['--verify', 'HEAD'])
@@ -692,6 +757,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-init', async (event, repoPath) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       await git.init()
       return { success: true }
@@ -702,6 +768,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-add', async (event, repoPath, paths) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       await git.add(paths)
       return { success: true }
@@ -712,6 +779,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-commit', async (event, repoPath, message) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       const result = await git.commit(message)
       return { success: true, commit: cloneable(result) }
@@ -726,6 +794,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-push', async (event, repoPath) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       const status = await git.status()
       if (status.tracking) {
@@ -751,6 +820,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-pull', async (event, repoPath) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       await git.pull()
       return { success: true }
@@ -764,7 +834,9 @@ function setupIpcHandlers() {
       const url = String(repoUrl || '').trim()
       if (!validGitArg(url)) return { success: false, error: t('Invalid repository URL') }
       if (!validGitArg(targetPath)) return { success: false, error: t('Invalid target path') }
+      if (!isAllowedNewDirectory(targetPath)) return deniedPath()
       await simpleGit().clone(url, targetPath)
+      registerAllowedRoot(targetPath)
       return { success: true }
     } catch (error) {
       return { success: false, error: error.message }
@@ -773,6 +845,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-remotes', async (event, repoPath) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const remotes = await simpleGit(repoPath).getRemotes(true)
       return { success: true, remotes: cloneable(remotes) }
     } catch (error) {
@@ -782,6 +855,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-set-remote', async (event, repoPath, name, repoUrl) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const remote = String(name || '').trim()
       const url = String(repoUrl || '').trim()
       if (!validRemoteName(remote)) return { success: false, error: t('Invalid remote name') }
@@ -801,6 +875,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-push-upstream', async (event, repoPath, remote, branch) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const remoteName = String(remote || '').trim()
       const branchName = String(branch || '').trim()
       if (!validRemoteName(remoteName)) return { success: false, error: t('Invalid remote name') }
@@ -817,6 +892,7 @@ function setupIpcHandlers() {
       if (scope !== 'local' && scope !== 'global') {
         return { success: false, error: t('Invalid config scope') }
       }
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       const readKey = async (key) => {
         try {
@@ -843,6 +919,7 @@ function setupIpcHandlers() {
       if (scope !== 'local' && scope !== 'global') {
         return { success: false, error: t('Invalid config scope') }
       }
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       const name = String(values?.name || '').trim()
       const email = String(values?.email || '').trim()
@@ -859,6 +936,7 @@ function setupIpcHandlers() {
   // File content at HEAD - used as the "original" side of the diff view
   ipcMain.handle('git-file-at-head', async (event, repoPath, filePath) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       const rel = path.relative(repoPath, filePath).replace(/\\/g, '/')
       const content = await git.show([`HEAD:${rel}`])
@@ -870,6 +948,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git-diff', async (event, repoPath) => {
     try {
+      if (!isWithinAllowedRoot(repoPath)) return deniedPath()
       const git = simpleGit(repoPath)
       const diff = await git.diff()
       return { success: true, diff }
@@ -879,4 +958,4 @@ function setupIpcHandlers() {
   })
 }
 
-module.exports = { setupIpcHandlers }
+module.exports = { setupIpcHandlers, registerAllowedRoot }

@@ -5,6 +5,63 @@ All notable changes to Teaspoon IDE are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.1.0] - 2026-10-08
+
+### Security
+
+- File-system and Git IPC handlers are now confined server-side (in the
+  main process) to directories the user has implicitly authorized,
+  instead of trusting renderer-supplied paths. The main process keeps a
+  set of "allowed roots" that is populated only by paths carrying user
+  consent - a folder chosen through the native picker, a folder passed on
+  the command line or dropped on the executable, a folder the app just
+  created or cloned into - plus an explicit `register-project-root` call
+  the renderer makes when it opens a project without a dialog (recent
+  list, drag-and-drop onto the window).
+- `read-file`, `write-file`, `delete-file`, `search-files`,
+  `find-files`, `watch-project`, `open-path`, `terminal-run`, and all
+  `git-*` handlers now reject paths outside the allowed roots.
+  `create-directory`, `read-directory`, and `git-clone` additionally
+  accept a brand-new directory directly under an allowed root or the
+  user's Documents folder, so the create-project flows still work.
+- What this prevents: a malformed or injected AI command that slips past
+  the renderer's project-root check (`resolveFilePath`) can no longer
+  read or write arbitrary files - e.g. `WRITE_FILE` to a startup folder
+  or `READ_FILE` on a private key now fails in the main process. Search
+  and watch requests can no longer enumerate arbitrary directories by
+  passing a fake `rootPath` (which `delete-file` previously trusted
+  unchecked), and terminal/git operations are likewise pinned to opened
+  project folders.
+- Scope note: this is defense-in-depth, not a sandbox boundary - a fully
+  compromised renderer could still call `register-project-root` itself.
+  Renderer-side XSS remains mitigated by DOMPurify-sanitized markdown.
+
+### Fixed
+
+- A dangling `// WRITE_FILE:` / `// EDIT_FILE:` opener (e.g. a response
+  cut off mid-block by a timeout) is now reported to the model even when
+  other files in the same response were written successfully. Previously
+  the malformed-block check only fired when no write parsed at all, so a
+  truncated third file was silently dropped and the model could claim it
+  had been written. The retry feedback also now includes the target path
+  and the last lines the model managed to emit, so it can resume the file
+  faithfully instead of rewriting it from memory and silently dropping
+  not-yet-emitted functions.
+- The model can no longer end a turn by deferring remaining work to a
+  "next response" and asking the user to say "continue" - the deferral
+  is detected and the agent loop continues automatically instead.
+- Opening the app in a browser (`RUN_COMMAND` that opens a file) while a
+  file edit or run failure is still unresolved now continues the agent
+  loop so the outstanding work is fixed first, instead of leaving the
+  user with an incomplete build and a surprise edit approval afterwards.
+- The agent no longer launches the result (browser opener / app start)
+  on its own initiative after creating files; the system prompt now
+  requires an explicit user request to run, open, or preview something.
+  Users may still be planning follow-up work, and opening a
+  half-finished app was confusing.
+
 ## [1.0.0] - 2026-10-05
 
 ### Added
