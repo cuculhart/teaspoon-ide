@@ -1,4 +1,7 @@
 export interface ElectronAPI {
+  secretsGet: (key: string) => string | null
+  secretsSet: (key: string, value: string) => boolean
+  secretsRemove: (key: string) => boolean
   readFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string }>
   writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>
   readDirectory: (dirPath: string) => Promise<{ success: boolean; items?: Array<{ name: string; path: string; isDirectory: boolean }>; error?: string }>

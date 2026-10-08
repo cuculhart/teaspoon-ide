@@ -1,10 +1,10 @@
 const fs = require('fs/promises')
-const { watch: fsWatch } = require('fs')
+const { watch: fsWatch, readFileSync, writeFileSync } = require('fs')
 const path = require('path')
-const simpleGit = require('simple-git')
+const { simpleGit } = require('simple-git')
 const { spawn } = require('child_process')
 const pty = require('node-pty')
-const { ipcMain, dialog, nativeTheme, shell, BrowserWindow, app } = require('electron')
+const { ipcMain, dialog, nativeTheme, shell, BrowserWindow, app, safeStorage } = require('electron')
 const { langDir, t } = require('./i18n')
 
 // Running terminal processes, keyed by a small app-level id
@@ -60,7 +60,73 @@ function isAllowedNewDirectory(p) {
 
 const deniedPath = () => ({ success: false, error: t('Path is outside the allowed folders') })
 
+// API keys are stored encrypted with the OS keychain (safeStorage) in
+// userData/secrets.json - never in renderer localStorage, where any XSS or
+// local process could read them. On platforms with no keychain the value
+// falls back to a 'plain:' prefix; exposure then matches the old scheme.
+const SECRET_KEYS = new Set(['gemini_api_key', 'managed_api_key'])
+let secretsCache = null
+
+function secretsFile() {
+  return path.join(app.getPath('userData'), 'secrets.json')
+}
+
+function loadSecrets() {
+  if (!secretsCache) {
+    try {
+      secretsCache = JSON.parse(readFileSync(secretsFile(), 'utf8'))
+    } catch {
+      secretsCache = {}
+    }
+  }
+  return secretsCache
+}
+
+function saveSecrets() {
+  try {
+    writeFileSync(secretsFile(), JSON.stringify(secretsCache), 'utf8')
+  } catch { /* read-only profile - secrets live in memory for the session */ }
+}
+
+function encodeSecret(value) {
+  if (safeStorage.isEncryptionAvailable()) {
+    return 'enc:' + safeStorage.encryptString(value).toString('base64')
+  }
+  return 'plain:' + value
+}
+
+function decodeSecret(stored) {
+  if (typeof stored !== 'string') return null
+  if (stored.startsWith('enc:')) {
+    if (!safeStorage.isEncryptionAvailable()) return null
+    try {
+      return safeStorage.decryptString(Buffer.from(stored.slice(4), 'base64'))
+    } catch { return null }
+  }
+  if (stored.startsWith('plain:')) return stored.slice(6)
+  return null
+}
+
 function setupIpcHandlers() {
+  // Sync IPC keeps configService's synchronous API unchanged.
+  ipcMain.on('secrets-get', (event, key) => {
+    event.returnValue = SECRET_KEYS.has(key) ? decodeSecret(loadSecrets()[key]) : null
+  })
+  ipcMain.on('secrets-set', (event, key, value) => {
+    if (SECRET_KEYS.has(key) && typeof value === 'string') {
+      loadSecrets()[key] = encodeSecret(value)
+      saveSecrets()
+    }
+    event.returnValue = true
+  })
+  ipcMain.on('secrets-remove', (event, key) => {
+    if (SECRET_KEYS.has(key)) {
+      delete loadSecrets()[key]
+      saveSecrets()
+    }
+    event.returnValue = true
+  })
+
   // File system operations
   // The renderer registers each project folder it opens. Consent-proof
   // registration happens via native dialogs / CLI args / create & clone;

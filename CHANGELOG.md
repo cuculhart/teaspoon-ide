@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-08
+
+### Security
+
+- API keys are no longer stored as plain text in the renderer's
+  `localStorage`. Both the personal Gemini key and the organization-managed
+  session key are now encrypted with the OS keychain through Electron
+  `safeStorage` and persisted in `userData/secrets.json`. The renderer
+  reaches them through a synchronous IPC bridge (`secrets-get` /
+  `secrets-set` / `secrets-remove`, restricted to the two known key
+  names), so `configService` keeps its synchronous API. Keys saved by
+  older versions are migrated automatically on first launch and the
+  plaintext copy in `localStorage` is removed. On platforms without a
+  keychain (e.g. headless Linux) values fall back to an unencrypted
+  prefix, matching the previous exposure.
+- Resolved all 49 `npm audit` findings (GitHub Dependabot alerts):
+  - `simple-git` updated to v4 (fixes the critical
+    `@simple-git/argv-parser` advisory); the v4 named-export API is now
+    used in `ipcHandlers.js`.
+  - `electron-builder` removed - it was an unused dev dependency.
+  - Electron Forge upgraded to v8, closing the `tar`, `tmp`,
+    `extract-zip`, `sprintf-js` and `@electron/get` chains.
+  - Vite upgraded to v8 with `@vitejs/plugin-react` v5, closing the
+    `esbuild` dev-server and `vite` advisories.
+  - `monaco-editor` bumped to 0.57 with an `overrides` pin forcing its
+    bundled `dompurify` to the patched 3.4.16; the direct `dompurify`
+    dependency is now `^3.4.16`.
+
+### Added
+
+- `SECURITY.md` (private vulnerability reporting instructions) and a
+  Dependabot configuration covering npm and GitHub Actions updates.
+
 ## [1.1.0] - 2026-10-08
 
 ### Security

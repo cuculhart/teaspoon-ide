@@ -1,6 +1,12 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Secrets (API keys) - encrypted via safeStorage in the main process.
+  // Sync IPC so configService can stay synchronous.
+  secretsGet: (key) => ipcRenderer.sendSync('secrets-get', key),
+  secretsSet: (key, value) => ipcRenderer.sendSync('secrets-set', key, value),
+  secretsRemove: (key) => ipcRenderer.sendSync('secrets-remove', key),
+
   // File system operations
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),

@@ -187,7 +187,7 @@ export class GeminiService {
   }
 
   public isConfigured(): boolean {
-    return !!localStorage.getItem('gemini_api_key') || !!configService.getManagedCredentials()
+    return !!configService.getGeminiApiKey() || !!configService.getManagedCredentials()
   }
 
   public async sendMessageWithTools(message: string, context?: string): Promise<{ response: string; toolCalls: any[] }> {

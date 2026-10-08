@@ -30,6 +30,10 @@ export interface ManagedSession {
   expiresAt?: number // epoch ms; absent = never expires client-side
 }
 
+// Storage keys holding secrets. These go through the main process's
+// safeStorage (OS keychain) via the sync bridge - never localStorage.
+const SECRET_STORAGE_KEYS = new Set(['gemini_api_key', 'managed_api_key'])
+
 class ConfigService {
   private config: Map<string, string> = new Map()
 
@@ -37,9 +41,32 @@ class ConfigService {
     this.loadConfig()
   }
 
+  private readStorage(storageKey: string): string | null {
+    if (SECRET_STORAGE_KEYS.has(storageKey) && window.electronAPI?.secretsGet) {
+      const value = window.electronAPI.secretsGet(storageKey)
+      if (value) return value
+      // One-time migration of keys saved by pre-safeStorage versions
+      const legacy = localStorage.getItem(storageKey)
+      if (legacy) {
+        window.electronAPI.secretsSet(storageKey, legacy)
+        localStorage.removeItem(storageKey)
+      }
+      return legacy
+    }
+    return localStorage.getItem(storageKey)
+  }
+
+  private writeStorage(storageKey: string, value: string): void {
+    if (SECRET_STORAGE_KEYS.has(storageKey) && window.electronAPI?.secretsSet) {
+      window.electronAPI.secretsSet(storageKey, value)
+      return
+    }
+    localStorage.setItem(storageKey, value)
+  }
+
   private loadConfig() {
-    // Load from localStorage
-    const apiKey = localStorage.getItem('gemini_api_key')
+    // Load from localStorage / OS keychain (secret keys)
+    const apiKey = this.readStorage('gemini_api_key')
     const model = localStorage.getItem('gemini_model')
     const customModel = localStorage.getItem('gemini_custom_model')
     const proxyUrl = localStorage.getItem('llm_proxy_url')
@@ -54,7 +81,7 @@ class ConfigService {
     const language = localStorage.getItem('language')
     const managedMode = localStorage.getItem('managed_mode')
     const managedServerUrl = localStorage.getItem('managed_server_url')
-    const managedApiKey = localStorage.getItem('managed_api_key')
+    const managedApiKey = this.readStorage('managed_api_key')
     const managedProxyUrl = localStorage.getItem('managed_proxy_url')
     const managedUser = localStorage.getItem('managed_user')
     const managedModel = localStorage.getItem('managed_model')
@@ -93,7 +120,7 @@ class ConfigService {
     
     // Sync to localStorage
     if (key === 'GEMINI_API_KEY') {
-      localStorage.setItem('gemini_api_key', value)
+      this.writeStorage('gemini_api_key', value)
     } else if (key === 'GEMINI_MODEL') {
       localStorage.setItem('gemini_model', value)
     } else if (key === 'GEMINI_CUSTOM_MODEL') {
@@ -123,7 +150,7 @@ class ConfigService {
     } else if (key === 'MANAGED_SERVER_URL') {
       localStorage.setItem('managed_server_url', value)
     } else if (key === 'MANAGED_API_KEY') {
-      localStorage.setItem('managed_api_key', value)
+      this.writeStorage('managed_api_key', value)
     } else if (key === 'MANAGED_PROXY_URL') {
       localStorage.setItem('managed_proxy_url', value)
     } else if (key === 'MANAGED_USER') {
@@ -139,6 +166,10 @@ class ConfigService {
 
   private remove(key: string, storageKey: string): void {
     this.config.delete(key)
+    if (SECRET_STORAGE_KEYS.has(storageKey) && window.electronAPI?.secretsRemove) {
+      window.electronAPI.secretsRemove(storageKey)
+      return
+    }
     localStorage.removeItem(storageKey)
   }
 
@@ -463,6 +494,10 @@ class ConfigService {
   // the owner can change back, so they survive.
   clearGeminiApiKey(): void {
     this.config.delete('GEMINI_API_KEY')
+    if (window.electronAPI?.secretsRemove) {
+      window.electronAPI.secretsRemove('gemini_api_key')
+      return
+    }
     localStorage.removeItem('gemini_api_key')
   }
 }
