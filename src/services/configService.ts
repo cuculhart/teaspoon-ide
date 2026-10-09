@@ -118,50 +118,32 @@ class ConfigService {
   set(key: string, value: string): void {
     this.config.set(key, value)
     
-    // Sync to localStorage
-    if (key === 'GEMINI_API_KEY') {
-      this.writeStorage('gemini_api_key', value)
-    } else if (key === 'GEMINI_MODEL') {
-      localStorage.setItem('gemini_model', value)
-    } else if (key === 'GEMINI_CUSTOM_MODEL') {
-      localStorage.setItem('gemini_custom_model', value)
-    } else if (key === 'LLM_PROXY_URL') {
-      localStorage.setItem('llm_proxy_url', value)
-    } else if (key === 'THEME') {
-      localStorage.setItem('theme', value)
-    } else if (key === 'UI_FONT_FAMILY') {
-      localStorage.setItem('ui_font_family', value)
-    } else if (key === 'UI_FONT_SIZE') {
-      localStorage.setItem('ui_font_size', value)
-    } else if (key === 'CONTEXT_MODE') {
-      localStorage.setItem('context_mode', value)
-    } else if (key === 'CONTEXT_MAX_FILES') {
-      localStorage.setItem('context_max_files', value)
-    } else if (key === 'LLM_PROVIDER') {
-      localStorage.setItem('llm_provider', value)
-    } else if (key === 'OLLAMA_BASE_URL') {
-      localStorage.setItem('ollama_base_url', value)
-    } else if (key === 'OLLAMA_MODEL') {
-      localStorage.setItem('ollama_model', value)
-    } else if (key === 'LANGUAGE') {
-      localStorage.setItem('language', value)
-    } else if (key === 'MANAGED_MODE') {
-      localStorage.setItem('managed_mode', value)
-    } else if (key === 'MANAGED_SERVER_URL') {
-      localStorage.setItem('managed_server_url', value)
-    } else if (key === 'MANAGED_API_KEY') {
-      this.writeStorage('managed_api_key', value)
-    } else if (key === 'MANAGED_PROXY_URL') {
-      localStorage.setItem('managed_proxy_url', value)
-    } else if (key === 'MANAGED_USER') {
-      localStorage.setItem('managed_user', value)
-    } else if (key === 'MANAGED_MODEL') {
-      localStorage.setItem('managed_model', value)
-    } else if (key === 'MANAGED_MODELS') {
-      localStorage.setItem('managed_models', value)
-    } else if (key === 'MANAGED_EXPIRY') {
-      localStorage.setItem('managed_expiry', value)
+    // Sync to persistent storage (secrets go via writeStorage to the keychain)
+    const STORAGE_KEYS: Record<string, string> = {
+      GEMINI_API_KEY: 'gemini_api_key',
+      GEMINI_MODEL: 'gemini_model',
+      GEMINI_CUSTOM_MODEL: 'gemini_custom_model',
+      LLM_PROXY_URL: 'llm_proxy_url',
+      THEME: 'theme',
+      UI_FONT_FAMILY: 'ui_font_family',
+      UI_FONT_SIZE: 'ui_font_size',
+      CONTEXT_MODE: 'context_mode',
+      CONTEXT_MAX_FILES: 'context_max_files',
+      LLM_PROVIDER: 'llm_provider',
+      OLLAMA_BASE_URL: 'ollama_base_url',
+      OLLAMA_MODEL: 'ollama_model',
+      LANGUAGE: 'language',
+      MANAGED_MODE: 'managed_mode',
+      MANAGED_SERVER_URL: 'managed_server_url',
+      MANAGED_API_KEY: 'managed_api_key',
+      MANAGED_PROXY_URL: 'managed_proxy_url',
+      MANAGED_USER: 'managed_user',
+      MANAGED_MODEL: 'managed_model',
+      MANAGED_MODELS: 'managed_models',
+      MANAGED_EXPIRY: 'managed_expiry',
     }
+    const storageKey = STORAGE_KEYS[key]
+    if (storageKey) this.writeStorage(storageKey, value)
   }
 
   private remove(key: string, storageKey: string): void {

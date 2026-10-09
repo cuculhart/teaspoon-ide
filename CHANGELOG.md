@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-09
+
+### Changed
+
+- All `localStorage` writes in `configService.set()` now funnel through
+  the single `writeStorage()` helper (which routes secrets to the OS
+  keychain and everything else to `localStorage`), replacing a long
+  if/else chain of individual `setItem` calls. `geminiService` no longer
+  writes `gemini_model` directly; model fallbacks and restores go through
+  `configService.set('GEMINI_MODEL', ...)`. This consolidates the code
+  paths CodeQL flags under "clear text storage of sensitive information"
+  to a single fallback line, so remaining alerts are recognizable as the
+  intentional non-Electron fallback.
+- `vite.config.ts` renamed to `vite.config.mts` so it is unambiguously ESM,
+  ahead of Vite's planned `configLoader: 'native'` default (the previous
+  `.ts` file relied on Vite's bundled loader injecting a `__dirname`
+  shim). The `'@'` alias now uses `import.meta.url` instead. The rest of
+  the project (Electron main/preload, `forge.config.js`) intentionally
+  stays CommonJS, so `"type": "module"` was not added.
+
 ## [1.1.1] - 2026-10-08
 
 ### Security

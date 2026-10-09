@@ -393,7 +393,7 @@ export class GeminiService {
       if (!configService.getManagedCredentials() && (errorMessage.includes('not found') || errorMessage.includes('is not supported'))) {
         const currentModel = this.getModelName()
         console.log(`Model '${currentModel}' not available, trying fallback...`)
-        localStorage.setItem('gemini_model', 'gemini-1.5-flash') // Try fallback
+        configService.set('GEMINI_MODEL', 'gemini-1.5-flash') // Try fallback
         this.initialize()
         const fallbackModel = this.getModel()
         if (fallbackModel) {
@@ -403,7 +403,7 @@ export class GeminiService {
             return response.text()
           } catch (fallbackError) {
             // Restore original model setting
-            localStorage.setItem('gemini_model', currentModel)
+            configService.set('GEMINI_MODEL', currentModel)
             throw new Error(i18nService.t("Model '{model}' is not available. Please check your API key and model access.").replace('{model}', currentModel))
           }
         }
@@ -489,7 +489,7 @@ export class GeminiService {
       if (!configService.getManagedCredentials() && (errorMessage.includes('not found') || errorMessage.includes('is not supported'))) {
         const currentModel = this.getModelName()
         console.log(`Model '${currentModel}' not available for streaming, trying fallback...`)
-        localStorage.setItem('gemini_model', 'gemini-1.5-flash') // Try fallback
+        configService.set('GEMINI_MODEL', 'gemini-1.5-flash') // Try fallback
         this.initialize()
         const fallbackModel = this.getModel()
         if (fallbackModel) {
@@ -513,7 +513,7 @@ export class GeminiService {
             return fallbackStreamGenerator()
           } catch (fallbackError) {
             // Restore original model setting
-            localStorage.setItem('gemini_model', currentModel)
+            configService.set('GEMINI_MODEL', currentModel)
             throw new Error(i18nService.t("Model '{model}' is not available for streaming. Please check your API key and model access.").replace('{model}', currentModel))
           }
         }
