@@ -73,7 +73,7 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 
 - **テーマ**: System（OS設定連動、nativeTheme経由）/ Dark / Light に加え、12のカラーテーマ: Organic Light、Muted Ocean、Ancient Console、Walnut、Heritage、Rich Wine、Violet Fizz、Otegami、Soda Float、Modern Syntax eXtensible (MSX)、Chaya、Coquette
 - **フォント**: ファミリー・サイズをUI全体とMonacoエディターに反映
-- **LLMプロバイダー**: Gemini API（クラウド）/ Ollama（ローカル・オフライン）を設定画面で切替。モデル選択・LiteLLMプロキシにも対応
+- **LLMプロバイダー**: Gemini API（クラウド）/ Ollama（ローカル・オフライン）を設定画面で切替。モデル選択・LiteLLMプロキシにも対応。Ollama向けには CPU Threads（推論に使うスレッド数の上限。生成中もPCを応答可能に保つ）と Thinking（対応モデルの推論トレースをON/OFF）を設定可能。いずれもOllamaネイティブの `/api/chat` オプション経由
 - **UI言語**: Settings > Appearance > Language で切替。`lang/<code>.json` を追加すれば誰でも言語を追加可能
 - **チャットフォーカス**: チャットヘッダーのフォーカス切替ボタン（入るとき⛶、戻るとき◫）または View > Toggle Chat Focus（Ctrl+Shift+B）でサイドバー・エディター・ターミナルを隠し、チャットを全画面表示。IDE系のメニュー操作時は自動で復帰し、状態は再起動後も保持
 - **チャットリスト**: チャットフォーカス中は会話一覧レールが表示され（一覧｜会話の2ペイン）、チャットを切り替えられる。履歴はプロジェクト未オープンの会話を含め会話単位で userData/chat-history 配下のJSONに永続化。長い会話は古い部分をローリング要約に畳み込み、モデルのコンテキスト上限内に収める
@@ -217,7 +217,7 @@ npm run dev
 1. 設定画面（⚙️）を開く
 2. LLM Providerを選択:
    - **Gemini API**: APIキーを入力しモデルを選択（デフォルト: gemini-3.8-flash）。必要に応じてLiteLLMプロキシを設定
-   - **Ollama**: ローカルでOllamaを起動し、エンドポイントとモデルを選択（インストール済みモデルは自動検出）
+   - **Ollama**: ローカルでOllamaを起動し、エンドポイントとモデルを選択（インストール済みモデルは自動検出）。必要に応じて CPU Threads で推論スレッド数に上限を設けたり、Thinking（On/Off/Model default）で推論トレースの有無を切替可能
 3. チャットでメッセージを送信
 
 ### コンテキスト管理

@@ -99,6 +99,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [provider, setProvider] = useState<LlmProvider>('gemini')
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
   const [ollamaModel, setOllamaModel] = useState('gemma4:e4b')
+  const [ollamaNumThread, setOllamaNumThread] = useState('')
+  const [ollamaThink, setOllamaThink] = useState<'default' | 'on' | 'off'>('default')
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [ollamaReachable, setOllamaReachable] = useState<boolean | null>(null)
   const [languages, setLanguages] = useState<Array<{ code: string; label: string }>>([
@@ -112,6 +114,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [managedModel, setManagedModel] = useState('')
   const [openGroups, setOpenGroups] = useState<Record<SettingsGroupId, boolean>>(loadOpenGroups)
   const t = useT()
+  // Logical processor count of this machine - the upper bound for
+  // Ollama's num_thread option.
+  const maxThreads = navigator.hardwareConcurrency || 0
 
   const toggleGroup = (id: SettingsGroupId) => {
     setOpenGroups(prev => {
@@ -153,6 +158,10 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
         setProvider(p)
         setOllamaUrl(configService.getOllamaBaseUrl())
         setOllamaModel(configService.getOllamaModel())
+        const nt = configService.getOllamaNumThread()
+        setOllamaNumThread(nt ? String(nt) : '')
+        const think = configService.getOllamaThink()
+        setOllamaThink(think === undefined ? 'default' : think ? 'on' : 'off')
         if (p === 'ollama') {
           refreshOllamaModels()
         }
@@ -279,6 +288,17 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
       configService.setOllamaModel(value.trim())
       notifyLlmChanged()
     }
+  }
+
+  const handleOllamaNumThreadChange = (value: string) => {
+    setOllamaNumThread(value)
+    const n = parseInt(value, 10)
+    configService.setOllamaNumThread(Number.isFinite(n) && n > 0 ? n : undefined)
+  }
+
+  const handleOllamaThinkChange = (value: 'default' | 'on' | 'off') => {
+    setOllamaThink(value)
+    configService.setOllamaThink(value === 'default' ? undefined : value === 'on')
   }
 
   // Clears Recent Projects (Explorer) and the Quick Open recent-files list.
@@ -515,6 +535,41 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                     />
                   )}
                 </div>
+                <div className="appearance-row">
+                  <label htmlFor="ollama-num-thread">{t('CPU Threads')}</label>
+                  <input
+                    id="ollama-num-thread"
+                    type="number"
+                    min="1"
+                    max={maxThreads || undefined}
+                    value={ollamaNumThread}
+                    onChange={(e) => handleOllamaNumThreadChange(e.target.value)}
+                    placeholder={maxThreads ? String(maxThreads) : ''}
+                    className="font-size-field"
+                  />
+                  {maxThreads > 0 && (
+                    <span className="appearance-unit">/ {maxThreads}</span>
+                  )}
+                </div>
+                <p className="setting-description">
+                  {t("Threads Ollama may use for inference. Empty = Ollama's own default (varies by version); a lower number keeps the PC responsive during generation.")}
+                </p>
+                <div className="appearance-row">
+                  <label htmlFor="ollama-think">{t('Thinking')}</label>
+                  <select
+                    id="ollama-think"
+                    value={ollamaThink}
+                    onChange={(e) => handleOllamaThinkChange(e.target.value as 'default' | 'on' | 'off')}
+                    className="model-dropdown"
+                  >
+                    <option value="default">{t('Model default')}</option>
+                    <option value="on">{t('On')}</option>
+                    <option value="off">{t('Off')}</option>
+                  </select>
+                </div>
+                <p className="setting-description">
+                  {t('Force reasoning on/off for models that support it (qwen3.5, gpt-oss, ...). Off = much faster replies on slow hardware.')}
+                </p>
                 <p className="setting-description">
                   {ollamaReachable === null && t('Checking Ollama...')}
                   {ollamaReachable === true && `${t('Connected')} - ${ollamaModels.length} ${t('model(s) installed.')}`}

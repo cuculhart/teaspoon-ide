@@ -78,6 +78,8 @@ class ConfigService {
     const llmProvider = localStorage.getItem('llm_provider')
     const ollamaBaseUrl = localStorage.getItem('ollama_base_url')
     const ollamaModel = localStorage.getItem('ollama_model')
+    const ollamaNumThread = localStorage.getItem('ollama_num_thread')
+    const ollamaThink = localStorage.getItem('ollama_think')
     const language = localStorage.getItem('language')
     const managedMode = localStorage.getItem('managed_mode')
     const managedServerUrl = localStorage.getItem('managed_server_url')
@@ -100,6 +102,8 @@ class ConfigService {
     if (llmProvider) this.config.set('LLM_PROVIDER', llmProvider)
     if (ollamaBaseUrl) this.config.set('OLLAMA_BASE_URL', ollamaBaseUrl)
     if (ollamaModel) this.config.set('OLLAMA_MODEL', ollamaModel)
+    if (ollamaNumThread) this.config.set('OLLAMA_NUM_THREAD', ollamaNumThread)
+    if (ollamaThink) this.config.set('OLLAMA_THINK', ollamaThink)
     if (language) this.config.set('LANGUAGE', language)
     if (managedMode) this.config.set('MANAGED_MODE', managedMode)
     if (managedServerUrl) this.config.set('MANAGED_SERVER_URL', managedServerUrl)
@@ -132,6 +136,8 @@ class ConfigService {
       LLM_PROVIDER: 'llm_provider',
       OLLAMA_BASE_URL: 'ollama_base_url',
       OLLAMA_MODEL: 'ollama_model',
+      OLLAMA_NUM_THREAD: 'ollama_num_thread',
+      OLLAMA_THINK: 'ollama_think',
       LANGUAGE: 'language',
       MANAGED_MODE: 'managed_mode',
       MANAGED_SERVER_URL: 'managed_server_url',
@@ -303,6 +309,37 @@ class ConfigService {
 
   setOllamaModel(model: string): void {
     this.set('OLLAMA_MODEL', model)
+  }
+
+  // CPU threads passed to Ollama as options.num_thread. Unset = let
+  // Ollama use every logical core (its default).
+  getOllamaNumThread(): number | undefined {
+    const value = parseInt(this.get('OLLAMA_NUM_THREAD') || '', 10)
+    return Number.isFinite(value) && value > 0 ? value : undefined
+  }
+
+  setOllamaNumThread(threads: number | undefined): void {
+    if (threads && threads > 0) {
+      this.set('OLLAMA_NUM_THREAD', String(threads))
+    } else {
+      this.remove('OLLAMA_NUM_THREAD', 'ollama_num_thread')
+    }
+  }
+
+  // Thinking on/off for reasoning models (qwen3.5, Saluki, ...), sent as
+  // the "think" field of /api/chat. undefined = let the model decide
+  // (most thinking models default to on).
+  getOllamaThink(): boolean | undefined {
+    const value = this.get('OLLAMA_THINK')
+    return value === '1' ? true : value === '0' ? false : undefined
+  }
+
+  setOllamaThink(think: boolean | undefined): void {
+    if (think === undefined) {
+      this.remove('OLLAMA_THINK', 'ollama_think')
+    } else {
+      this.set('OLLAMA_THINK', think ? '1' : '0')
+    }
   }
 
   getLanguage(): string {
