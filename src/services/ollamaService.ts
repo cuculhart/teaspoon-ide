@@ -22,8 +22,9 @@ function tagSizeBillions(model: string): number | null {
 const SMALL_MODEL_MAX_B = 3
 const SMALL_MODEL_HISTORY = 8
 
-// Local LLM via Ollama's OpenAI-compatible endpoint (no extra deps).
-// Same text-based file-command protocol as the Gemini path.
+// Local LLM via Ollama's native /api/chat endpoint. The OpenAI-compatible
+// /v1 endpoint cannot carry options like num_thread, so the native API is
+// used. Same text-based file-command protocol as the Gemini path.
 class OllamaService {
   private getBaseUrl(): string {
     return (configService.getOllamaBaseUrl() || 'http://localhost:11434').replace(/\/+$/, '')
@@ -87,15 +88,20 @@ class OllamaService {
       content: context ? `Context:\n${context}\n\nUser message:\n${message}` : message,
     })
 
+    const numThread = configService.getOllamaNumThread()
+    const think = configService.getOllamaThink()
+
     let res: Response
     try {
-      res = await fetch(`${this.getBaseUrl()}/v1/chat/completions`, {
+      res = await fetch(`${this.getBaseUrl()}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
           messages,
           stream: !!onDelta,
+          ...(numThread ? { options: { num_thread: numThread } } : {}),
+          ...(think !== undefined ? { think } : {}),
         }),
         signal,
       })
@@ -112,16 +118,16 @@ class OllamaService {
 
     if (!onDelta || !res.body) {
       const data = await res.json()
-      const text = data?.choices?.[0]?.message?.content
+      const text = data?.message?.content
       if (typeof text !== 'string' || !text) {
         throw new Error(i18nService.t('Ollama returned an empty response'))
       }
       return text
     }
 
-    // SSE stream: `data: {json}` lines terminated by `data: [DONE]`.
-    // Thinking-type models put their trace in delta.reasoning - we only
-    // surface delta.content (the user-facing reply).
+    // NDJSON stream: one {json} object per line, terminated by done:true.
+    // Thinking-type models put their trace in message.thinking - we only
+    // surface message.content (the user-facing reply).
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -135,20 +141,17 @@ class OllamaService {
       while ((nl = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, nl).trim()
         buffer = buffer.slice(nl + 1)
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (payload === '[DONE]') {
-          done = true
-          break
-        }
+        if (!line) continue
         try {
-          const piece = JSON.parse(payload)?.choices?.[0]?.delta?.content
+          const obj = JSON.parse(line)
+          const piece = obj?.message?.content
           if (typeof piece === 'string' && piece) {
             full += piece
             onDelta(piece)
           }
+          if (obj?.done) done = true
         } catch {
-          // ignore malformed SSE chunk
+          // ignore malformed NDJSON chunk
         }
       }
     }

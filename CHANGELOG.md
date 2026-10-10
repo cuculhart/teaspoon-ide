@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-10
+
+### Added
+
+- CPU Threads field under Settings > LLM Provider (Ollama): caps the
+  number of CPU threads Ollama may use for inference, so a local model
+  no longer pins every core at 100% while generating and the PC stays
+  responsive for other work. The field shows the machine's logical
+  processor count (via `navigator.hardwareConcurrency`) as the upper
+  bound; leaving it empty lets Ollama choose its own default (note:
+  this default changed across Ollama versions - e.g. all cores on
+  0.21.x vs n_threads=3 on 0.40.x - so the cap doubles as a guarantee
+  independent of Ollama's shifting defaults).
+  Applies on change - no Save needed, like the other Ollama settings.
+- Thinking selector under Settings > LLM Provider (Ollama): forces
+  reasoning on or off for models that support it (qwen3.5, gpt-oss,
+  ...), or leaves the choice to the model with "Model default". Turning
+  it off makes replies dramatically faster on slow hardware where a
+  thinking trace otherwise dominates the response time.
+
+### Changed
+
+- `ollamaService` now talks to Ollama's native `/api/chat` endpoint
+  instead of the OpenAI-compatible `/v1/chat/completions`. The OpenAI
+  request schema has no way to carry `options` such as `num_thread`,
+  so the thread cap above required the native endpoint. Streaming now
+  parses Ollama's NDJSON chunks (`message.content`, `done` flag) rather
+  than SSE `data:` lines; thinking-type models' `message.thinking` is
+  ignored just as `delta.reasoning` was. Note: pointing the Ollama
+  endpoint at a generic OpenAI-only server (e.g. LiteLLM) is no longer
+  supported - the field is meant for a real Ollama instance.
+
 ## [1.1.2] - 2026-10-09
 
 ### Changed

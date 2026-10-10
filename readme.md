@@ -74,7 +74,7 @@ Author: Eiji Arai — Web Site: https://cuculhart.com
 
 - **Theme**: System (follows OS via nativeTheme) / Dark / Light, plus 12 named themes: Organic Light, Muted Ocean, Ancient Console, Walnut, Heritage, Rich Wine, Violet Fizz, Otegami, Soda Float, Modern Syntax eXtensible (MSX), Chaya, Coquette
 - **Font**: Family and size applied across the UI and Monaco
-- **LLM Provider**: Switch between Gemini API (cloud) and Ollama (local, offline) in Settings. Model selection and LiteLLM proxy supported
+- **LLM Provider**: Switch between Gemini API (cloud) and Ollama (local, offline) in Settings. Model selection and LiteLLM proxy supported. For Ollama, a CPU Threads cap keeps the PC responsive while a local model generates, and a Thinking selector forces reasoning on/off for supported models - both go through Ollama's native `/api/chat` options
 - **UI Language**: Switch in Settings > Appearance > Language. Add `lang/<code>.json` to contribute a language — keys are the English source strings
 - **Chat focus**: focus toggle in the chat header (⛶ to enter, ◫ to restore panes) or View > Toggle Chat Focus (Ctrl+Shift+B) hides the sidebar/editor/terminal so the chat fills the window; IDE panes return on menu actions that need them, and the mode is remembered across restarts
 - **Chat list**: while chat focus is on, a conversation rail appears beside the chat (list | conversation). Chats are persisted per conversation — including ones started with no project open — as JSON files under userData/chat-history; long chats are compacted into a rolling summary so requests stay within model context limits
@@ -220,7 +220,7 @@ npm run dev
 1. Open Settings (⚙️)
 2. Choose an LLM provider:
    - **Gemini API**: Enter your API key and pick a model (default: gemini-3.8-flash). Optionally configure a LiteLLM proxy
-   - **Ollama**: Start Ollama locally, then pick the endpoint and model (installed models are auto-detected)
+   - **Ollama**: Start Ollama locally, then pick the endpoint and model (installed models are auto-detected). Optionally cap CPU Threads so generation leaves cores free for other work, and set Thinking (On/Off/Model default) for reasoning-capable models
 3. Send a message in the chat
 
 ### Context Management
