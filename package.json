@@ -1,14 +1,14 @@
 {
   "name": "teaspoon-ide",
   "productName": "Teaspoon",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Teaspoon IDE - Standalone Electron-based AI coding assistant (a teaspoon of tokens)",
   "main": "electron/main.js",
   "config": {},
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:5173 && electron-forge start",
+    "dev:electron": "electron-forge start",
     "build": "npm run build:vite",
     "build:vite": "vite build",
     "preview": "vite preview",
@@ -38,8 +38,8 @@
     "@electron-forge/maker-squirrel": "^8.0.1",
     "@electron-forge/maker-zip": "^8.0.1",
     "@types/node": "^20.0.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^5.2.0",
     "concurrently": "^8.2.0",
     "cross-env": "^7.0.3",
@@ -47,8 +47,7 @@
     "monaco-editor": "^0.57.0",
     "playwright-core": "^1.63.0",
     "typescript": "^5.3.0",
-    "vite": "^8.3.4",
-    "wait-on": "^7.2.0"
+    "vite": "^8.3.4"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -61,8 +60,8 @@
     "electron-store": "^11.0.2",
     "marked": "^18.0.13",
     "node-pty": "^1.1.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "simple-git": "^4.0.2"
   }
 }

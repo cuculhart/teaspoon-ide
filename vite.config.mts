@@ -23,7 +23,9 @@ export default defineConfig({
   ],
   base: './',
   server: {
-    port: 5173,
+    // Preferred port; if it is busy Vite shifts upward and Electron's
+    // loader finds the app by verifying the served page title.
+    port: 5273,
   },
   build: {
     outDir: 'dist',

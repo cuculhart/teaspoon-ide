@@ -1,7 +1,27 @@
 const path = require('path')
 const fsSync = require('fs')
+const http = require('http')
 const { setupIpcHandlers, registerAllowedRoot } = require('./ipcHandlers')
 const i18n = require('./i18n')
+
+// Fetch a dev server's index page; returns '' when nothing is listening.
+// Used to verify a candidate port actually serves Teaspoon IDE before
+// loading it - another project's dev server must not be opened.
+function fetchIndexHtml(port) {
+  return new Promise((resolve) => {
+    const req = http
+      .get(`http://localhost:${port}`, (res) => {
+        let data = ''
+        res.on('data', (c) => (data += c))
+        res.on('end', () => resolve(data))
+      })
+      .on('error', () => resolve(''))
+      .setTimeout(2000, () => {
+        req.destroy()
+        resolve('')
+      })
+  })
+}
 
 let mainWindow = null
 
@@ -177,10 +197,17 @@ function buildMenu() {
 async function createWindow() {
   const { BrowserWindow } = require('electron')
 
+  // --window-size=WxH overrides the default size (e.g. for screenshots).
+  // width/height are the web contents area, excluding the OS frame.
+  const sizeArg = process.argv.find((a) => a.startsWith('--window-size='))
+  const m = sizeArg && sizeArg.match(/^--window-size=(\d+)x(\d+)$/)
+  const width = m ? +m[1] : 1400
+  const height = m ? +m[2] : 900
+
   mainWindow = new BrowserWindow({
     title: 'Teaspoon IDE',
-    width: 1400,
-    height: 900,
+    width,
+    height,
     // Windows uses the exe icon; this matters on Linux
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     webPreferences: {
@@ -194,22 +221,31 @@ async function createWindow() {
     // Packaged build: load the bundled renderer produced by `vite build`
     await mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   } else {
-    // In development, load from Vite dev server (try common ports)
-    const ports = [5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180, 5181, 5182, 5183, 5184, 5185, 5186, 5187, 5188, 5189, 5190]
+    // In development, load from the Vite dev server. Candidate ports
+    // are probed via HTTP and only a page actually titled Teaspoon IDE
+    // is loaded, so another project's dev server is skipped instead of
+    // opened. Retrying also covers vite still starting up or having
+    // shifted to a fallback port after a collision.
+    const ports = [5273, 5274, 5275, 5276, 5173, 5174, 5175]
+    const deadline = Date.now() + 60000
     let loaded = false
-    for (const port of ports) {
-      try {
-        await mainWindow.loadURL(`http://localhost:${port}`)
-        loaded = true
-        console.log(`Loaded from port ${port}`)
-        break
-      } catch (e) {
-        // Try next port
+    while (!loaded && Date.now() < deadline) {
+      for (const port of ports) {
+        const html = await fetchIndexHtml(port)
+        if (html.includes('Teaspoon IDE')) {
+          try {
+            await mainWindow.loadURL(`http://localhost:${port}`)
+            loaded = true
+          } catch (e) {
+            // server went away between probe and load - keep scanning
+          }
+          break
+        }
       }
+      if (!loaded) await new Promise((r) => setTimeout(r, 500))
     }
-
     if (!loaded) {
-      console.error('Failed to load Vite dev server on any port')
+      console.error('Teaspoon IDE dev server not found - is `npm run dev:vite` running?')
     }
   }
 

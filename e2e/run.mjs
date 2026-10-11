@@ -22,7 +22,7 @@ const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const electronExe = path.join(appDir, 'node_modules', 'electron', 'dist', 'electron.exe')
 const viteBin = path.join(appDir, 'node_modules', 'vite', 'bin', 'vite.js')
 const mainJs = path.join(appDir, 'electron', 'main.js')
-const PORT = 5173
+const PORT = 5273
 const BASE = `http://localhost:${PORT}`
 
 // ---------- helpers ----------

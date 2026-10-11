@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-11
+
+### Changed
+
+- Chat bubbles are no longer hard-wired to `--accent` / `--bg-active`:
+  new per-theme variables `--bubble-user`, `--on-bubble-user`,
+  `--bubble-ai`, `--on-bubble-ai`, and `--bubble-*-border` style the
+  user and assistant message bubbles. Five themes now use dedicated
+  bubble colors chosen in the theme mocks instead of the accent:
+  Muted Ocean (pale bubble-blue user `#8fa7b8`), Otegami (kraft
+  envelope user `#d6c49c` + white envelope AI `#fdfbf7`), Soda Float
+  (foam-white user `#ffffff` + soda-blue AI `#2e6d9e`), Chaya
+  (dango-pink user `#f2b8c6`), and Rich Wine (cork user `#5c3d28`).
+  All other themes keep the previous accent/bubble appearance.
+- React updated from 18.2.0 to 18.3.1 (the final React 18 release,
+  adding deprecation warnings that ease a future React 19 migration);
+  `@types/react` / `@types/react-dom` bumped to the 18.3 line to
+  match. No code changes required.
+
+### Added
+
+- `--window-size=WxH` command-line flag (e.g.
+  `Teaspoon.exe --window-size=1372x734`) sets the window's content
+  area to an exact size, for reproducible screenshots. Defaults to
+  1400x900 as before.
+
+### Fixed
+
+- `npm run dev` could open a different application entirely: the
+  Electron loader scanned ports 5173-5190 and loaded whatever
+  answered first - when another project's dev server held 5173, that
+  app opened instead of Teaspoon IDE. The loader now probes each
+  candidate port over HTTP and only loads a page whose HTML is
+  actually Teaspoon IDE, retrying for up to 60s (which also replaces
+  `wait-on` and tolerates Vite shifting off its preferred 5273 after
+  a collision).
+
 ## [1.2.0] - 2026-10-10
 
 ### Added

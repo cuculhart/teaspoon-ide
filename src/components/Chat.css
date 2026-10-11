@@ -179,13 +179,15 @@
 }
 
 .chat-message.user .message-content {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--bubble-user);
+  color: var(--on-bubble-user);
+  border: 1px solid var(--bubble-user-border);
 }
 
 .chat-message.assistant .message-content {
-  background: var(--bg-active);
-  color: var(--text-primary);
+  background: var(--bubble-ai);
+  color: var(--on-bubble-ai);
+  border: 1px solid var(--bubble-ai-border);
 }
 
 .retry-button {

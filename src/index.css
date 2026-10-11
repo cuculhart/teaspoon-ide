@@ -25,6 +25,14 @@
   --diff-removed: #f14c4c;
   --overlay-bg: rgba(0, 0, 0, 0.5);
   --shadow: rgba(0, 0, 0, 0.3);
+  /* Chat bubbles default to the accent/subtle pairing; individual
+     themes override these to taste */
+  --bubble-user: var(--accent);
+  --on-bubble-user: var(--on-accent);
+  --bubble-user-border: transparent;
+  --bubble-ai: var(--bg-active);
+  --on-bubble-ai: var(--text-primary);
+  --bubble-ai-border: transparent;
 }
 
 [data-theme='light'] {
@@ -105,6 +113,9 @@
   --on-accent: #1c1408;
   --accent-soft: #25344a;
   --selected-bg: #1d4a6b;
+  --bubble-user: #8fa7b8;
+  --on-bubble-user: #10222f;
+  --bubble-ai: #122a3d;
   --error: #e07a6a;
   --error-hover: #f08a7a;
   --diff-added: #5aa07a;
@@ -225,6 +236,9 @@
   --on-accent: #1e0a0d;
   --accent-soft: #3a2712;
   --selected-bg: #4d2430;
+  --bubble-user: #5c3d28;
+  --on-bubble-user: #e8dcc4;
+  --bubble-ai: #331a1e;
   --error: #e07060;
   --error-hover: #f08070;
   --diff-added: #7fa06a;
@@ -284,6 +298,11 @@
   --accent-hover: #9e1f19;
   --accent-soft: #eadfd0;
   --selected-bg: #dcd2b8;
+  --bubble-user: #d6c49c;
+  --on-bubble-user: #2b2b2b;
+  --bubble-user-border: #b3a37e;
+  --bubble-ai: #fdfbf7;
+  --bubble-ai-border: #d8d1bd;
   --error: #9e2a1f;
   --error-hover: #84211a;
   --diff-added: #5e7a46;
@@ -314,6 +333,11 @@
   --on-accent: #121416;
   --accent-soft: #e6dda8;
   --selected-bg: #5793c4;
+  --bubble-user: #ffffff;
+  --on-bubble-user: #123a4a;
+  --bubble-user-border: #d8ecf5;
+  --bubble-ai: #2e6d9e;
+  --on-bubble-ai: #eef7fc;
   --error: #b0341f;
   --error-hover: #8f2818;
   --diff-added: #1e7a4a;
@@ -374,6 +398,9 @@
   --on-accent: #1a2410;
   --accent-soft: #313a20;
   --selected-bg: #2c4a38;
+  --bubble-user: #f2b8c6;
+  --on-bubble-user: #55232e;
+  --bubble-ai: #1c3527;
   --error: #d96a4e;
   --error-hover: #e87a5e;
   --diff-added: #6fa860;
