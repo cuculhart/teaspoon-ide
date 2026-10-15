@@ -393,7 +393,7 @@ export class GeminiService {
       if (!configService.getManagedCredentials() && (errorMessage.includes('not found') || errorMessage.includes('is not supported'))) {
         const currentModel = this.getModelName()
         console.log(`Model '${currentModel}' not available, trying fallback...`)
-        configService.set('GEMINI_MODEL', 'gemini-1.5-flash') // Try fallback
+        configService.set('GEMINI_MODEL', 'gemini-3.8-flash') // Try fallback
         this.initialize()
         const fallbackModel = this.getModel()
         if (fallbackModel) {
@@ -489,7 +489,7 @@ export class GeminiService {
       if (!configService.getManagedCredentials() && (errorMessage.includes('not found') || errorMessage.includes('is not supported'))) {
         const currentModel = this.getModelName()
         console.log(`Model '${currentModel}' not available for streaming, trying fallback...`)
-        configService.set('GEMINI_MODEL', 'gemini-1.5-flash') // Try fallback
+        configService.set('GEMINI_MODEL', 'gemini-3.8-flash') // Try fallback
         this.initialize()
         const fallbackModel = this.getModel()
         if (fallbackModel) {

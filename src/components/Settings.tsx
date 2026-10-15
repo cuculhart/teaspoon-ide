@@ -13,29 +13,27 @@ interface SettingsProps {
 }
 
 const AVAILABLE_MODELS = [
+  // Gemini 4
+  { id: 'gemini-4-argon', name: 'Gemini 4 Argon (Flagship)' },
+
   // Gemini 3 Stable Models
   { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Latest Stable)' },
   { id: 'gemini-3.8-live', name: 'Gemini 3.8 Live (Audio)' },
   { id: 'gemini-3.8-live-extended-thinking', name: 'Gemini 3.8 Live Extended Thinking' },
-  { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
   { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
-  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
   { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (Fast & Cost-Effective)' },
   { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite' },
   { id: 'gemini-3.5-transcribe', name: 'Gemini 3.5 Transcribe (Audio)' },
-  
+
   // Gemini 3 Preview Models
-  { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro (Preview)' },
-  { id: 'gemini-3-flash', name: 'Gemini 3 Flash (Preview)' },
-  { id: 'gemini-3.5-live-translate', name: 'Gemini 3.5 Live Translate (Preview)' },
-  { id: 'gemini-3.1-flash-live', name: 'Gemini 3.1 Flash Live (Preview)' },
-  { id: 'gemini-3.1-flash-tts', name: 'Gemini 3.1 Flash TTS (Preview)' },
-  { id: 'gemini-omni-flash', name: 'Gemini Omni Flash (Preview)' },
-  
-  // Legacy Models (for compatibility)
-  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Legacy)' },
-  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Legacy)' },
-  
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)' },
+  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (Preview)' },
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview)' },
+  { id: 'gemini-3.5-live-translate-preview', name: 'Gemini 3.5 Live Translate (Preview)' },
+  { id: 'gemini-3.1-flash-live-preview', name: 'Gemini 3.1 Flash Live (Preview)' },
+  { id: 'gemini-3.1-flash-tts-preview', name: 'Gemini 3.1 Flash TTS (Preview)' },
+  { id: 'gemini-omni-1.1-flash', name: 'Gemini Omni Flash (Preview)' },
+
   // Custom option
   { id: 'custom', name: 'Custom Model' }
 ]
@@ -82,7 +80,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [apiKey, setApiKey] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash')
+  const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash')
   const [customModel, setCustomModel] = useState('')
   const [proxyUrl, setProxyUrl] = useState('')
   const [useProxy, setUseProxy] = useState(false)
@@ -633,7 +631,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                   type="text"
                   value={customModel}
                   onChange={(e) => setCustomModel(e.target.value)}
-                  placeholder={t('Enter custom model name (e.g., gemini-2.0-flash-thinking)')}
+                  placeholder={t('Enter custom model name (e.g., gemini-3-pro-preview)')}
                   className="custom-model-input"
                 />
               )}

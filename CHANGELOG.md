@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-15
+
+### Changed
+
+- Gemini model list updated to match the current API lineup: added
+  Gemini 4 Argon (flagship) and Gemini 3 Pro (Preview); corrected the
+  preview endpoint IDs (`gemini-3.1-pro-preview`,
+  `gemini-3-flash-preview`, `gemini-3.5-live-translate-preview`,
+  `gemini-3.1-flash-live-preview`, `gemini-3.1-flash-tts-preview`) and
+  Gemini Omni Flash's real ID (`gemini-omni-1.1-flash`); removed
+  entries that no longer exist or are superseded (Gemini 3.7 Flash,
+  Gemini 3.5 Flash, Gemini 1.5 Flash/Pro). Older models can still be
+  typed in via the Custom Model field.
+- Dependency updates via Dependabot: React 18.3.1 -> 19.3.0 (with
+  matching `@types/react` / `@types/react-dom`), @google/generative-ai
+  0.24.1, dotenv 18.0.6, marked 18.1.0, TypeScript 7.0.2,
+  @vitejs/plugin-react 6.1.2, concurrently 10, cross-env 10,
+  @types/node 26, Electron 44.7, playwright-core 1.64.
+
+### Fixed
+
+- `npm audit` clean again: concurrently 10.0.6 pulls in shell-quote
+  1.12.0, resolving the GHSA-pqg4-j6r4-53mv command-injection
+  advisory.
+- The model-not-found fallback now retries with `gemini-3.8-flash`
+  instead of the removed `gemini-1.5-flash`.
+
 ## [1.3.0] - 2026-10-11
 
 ### Changed
