@@ -1,7 +1,31 @@
+export interface LlmRelayRequest {
+  credential: 'personal' | 'managed'
+  requestId: string
+  method?: string
+  path: string
+  body?: unknown
+}
+
+export interface LlmRelayResult {
+  ok: boolean
+  status: number
+  json?: any
+  error?: string
+  aborted?: boolean
+}
+
 export interface ElectronAPI {
+  // secretsGet refuses "*_api_key" credentials - only non-credential
+  // endpoint bindings (proxy/server URLs) are readable by the renderer.
   secretsGet: (key: string) => string | null
+  secretsHas: (key: string) => boolean
   secretsSet: (key: string, value: string) => boolean
   secretsRemove: (key: string) => boolean
+  // LLM relay - main process attaches the stored credential and fetches.
+  llmRelay: (req: LlmRelayRequest) => Promise<LlmRelayResult>
+  llmRelayAbort: (requestId: string) => void
+  llmListModels: (req: { credential: 'personal' | 'managed' }) => Promise<{ ok: boolean; status?: number; models?: Array<{ id: string; name?: string }> }>
+  managedUsage: () => Promise<{ spend: number; maxBudget: number | null; resetAt?: string } | null>
   readFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string }>
   writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>
   readDirectory: (dirPath: string) => Promise<{ success: boolean; items?: Array<{ name: string; path: string; isDirectory: boolean }>; error?: string }>

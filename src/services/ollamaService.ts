@@ -8,6 +8,7 @@ import {
   hostOsName,
   hostOpenCommand,
 } from './agentPrompt'
+import type { ModelCaps } from './providers'
 
 // Parameter count in billions parsed from the model tag ("qwen3:1.7b" -> 1.7);
 // null when the tag carries no size marker.
@@ -38,6 +39,18 @@ class OllamaService {
     return true // local - no key needed; failures surface at request time
   }
 
+  // Per-model capabilities - the agent loop/UI read these through the
+  // provider registry instead of branching on the provider id.
+  capabilities(model: string): ModelCaps {
+    const small = (tagSizeBillions(model) ?? Infinity) < SMALL_MODEL_MAX_B
+    return {
+      streaming: true,
+      thinking: 'optional',
+      promptVariant: small ? 'compact' : 'full',
+      historyWindow: small ? SMALL_MODEL_HISTORY : undefined,
+    }
+  }
+
   // Model names installed in Ollama (for the Settings dropdown)
   async listModels(): Promise<string[]> {
     try {
@@ -59,11 +72,11 @@ class OllamaService {
     modelOverride?: string,
   ): Promise<string> {
     const model = modelOverride || this.getModel()
-    const isSmall = (tagSizeBillions(model) ?? Infinity) < SMALL_MODEL_MAX_B
+    const caps = this.capabilities(model)
     const projectOpen = !!projectService.getCurrentProject()?.isOpen
     const systemPrompt = !projectOpen
       ? NO_PROJECT_SYSTEM_PROMPT
-      : isSmall
+      : caps.promptVariant === 'compact'
         ? AGENT_SYSTEM_PROMPT_COMPACT
         : AGENT_SYSTEM_PROMPT
 
@@ -77,7 +90,7 @@ class OllamaService {
       { role: 'system', content: `${systemPrompt.trim()}\n\n${osNote}` },
     ]
 
-    for (const msg of isSmall ? history.slice(-SMALL_MODEL_HISTORY) : history) {
+    for (const msg of caps.historyWindow ? history.slice(-caps.historyWindow) : history) {
       if (msg.role === 'user' || msg.role === 'assistant') {
         messages.push({ role: msg.role, content: msg.content })
       }

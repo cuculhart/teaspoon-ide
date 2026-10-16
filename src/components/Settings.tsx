@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { configService, ThemeMode, ContextMode, LlmProvider } from '../services/configService'
 import { ollamaService } from '../services/ollamaService'
+import { geminiService } from '../services/geminiService'
+import { providers } from '../services/providers'
 import { i18nService, useT } from '../services/i18nService'
 import { themeService } from '../services/themeService'
 import { chatHistoryService } from '../services/chatHistoryService'
@@ -78,6 +80,8 @@ const SettingsGroup: React.FC<SettingsGroupProps> = ({ title, open, onToggle, ch
 
 const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [apiKey, setApiKey] = useState('')
+  const [apiKeySaved, setApiKeySaved] = useState(false)
+  const [apiModels, setApiModels] = useState<Array<{ id: string; name?: string; version?: string }> | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
   const [saved, setSaved] = useState(false)
   const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash')
@@ -128,12 +132,15 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
     // Load saved settings
     const loadSettings = async () => {
       if (window.electronAPI) {
-        const savedKey = configService.getGeminiApiKey()
+        // The stored key is never read back into the renderer - only its
+        // existence, so the field can show "saved" state for replacement.
+        const hasKey = configService.hasGeminiApiKey()
+        setApiKeySaved(hasKey)
         const savedModel = configService.getGeminiModel()
         const savedCustomModel = configService.getGeminiCustomModel()
         const savedProxyUrl = configService.getLlmProxyUrl()
-        if (savedKey) {
-          setApiKey(savedKey)
+        if (hasKey) {
+          refreshGeminiModels()
         }
         if (savedModel) {
           setSelectedModel(savedModel)
@@ -166,11 +173,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
         setLanguage(configService.getLanguage())
         setManagedMode(configService.getManagedMode())
         setManagedServerUrl(configService.getManagedServerUrl())
-        const creds = configService.getManagedCredentials()
-        if (creds) {
+        const session = configService.getManagedSession()
+        if (session) {
           setManagedUser(configService.getManagedUser())
-          setManagedModels(creds.models || [])
-          setManagedModel(creds.model || '')
+          setManagedModels(session.models || [])
+          setManagedModel(session.model || '')
         }
         window.electronAPI.listLanguages().then((res) => {
           if (res.success && res.languages) setLanguages(res.languages)
@@ -180,8 +187,35 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
     loadSettings()
   }, [])
 
+  // Provider settings apply immediately (no Save needed)
+  const refreshOllamaModels = async () => {
+    setOllamaReachable(null)
+    const models = await ollamaService.listModels()
+    setOllamaModels(models)
+    setOllamaReachable(models.length > 0)
+  }
+
+  // Fetch the live model list through the main-process relay; falls back
+  // to the curated list in the dropdown when the fetch fails.
+  const refreshGeminiModels = async () => {
+    if (!configService.hasGeminiApiKey()) {
+      setApiModels(null)
+      return
+    }
+    const models = await geminiService.listModels()
+    setApiModels(models.length > 0 ? models : null)
+  }
+
   const handleSave = () => {
-    configService.setGeminiApiKey(apiKey)
+    // An empty field keeps the stored key - it is only replaced when a
+    // new value is typed in.
+    if (apiKey.trim()) {
+      configService.setGeminiApiKey(apiKey.trim())
+      setApiKeySaved(true)
+      setApiKey('')
+      setShowApiKey(false)
+      refreshGeminiModels()
+    }
     configService.setGeminiModel(selectedModel)
     if (selectedModel === 'custom' && customModel) {
       configService.setGeminiCustomModel(customModel)
@@ -199,12 +233,47 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
 
   const handleClear = () => {
     setApiKey('')
+    setApiKeySaved(false)
+    setApiModels(null)
     configService.clearGeminiApiKey()
     setConfirmClearApiKey(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     window.dispatchEvent(new Event('teaspoon:llm-changed'))
     onApiKeySaved?.()
+  }
+
+  // Model dropdown contents: the live API list when available (curated
+  // display names are kept where ids match), else the curated list.
+  // The API has no deprecation flag, so a model a full major version
+  // behind the newest listed is demoted to the bottom with a "(legacy)"
+  // marker instead of hidden - custom input still accepts any id.
+  // 'custom' always stays last.
+  const geminiModelOptions = () => {
+    const curated = AVAILABLE_MODELS.filter(m => m.id !== 'custom')
+    const base = apiModels?.length
+      ? (() => {
+          const parsed = apiModels.map((m) => ({
+            id: m.id,
+            name: curated.find(c => c.id === m.id)?.name || m.name || m.id,
+            // version is the API field; fall back to parsing the id
+            // (e.g. "gemini-3.8-flash"). Unparseable counts as current.
+            major: (() => {
+              const v = parseFloat(m.version || (m.id.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? ''))
+              return isNaN(v) ? Infinity : Math.floor(v)
+            })(),
+          }))
+          const maxMajor = Math.max(...parsed.map((m) => (m.major === Infinity ? 0 : m.major)))
+          const legacy = (m: { major: number }) => m.major < maxMajor
+          const current = parsed.filter((m) => !legacy(m))
+          const old = parsed.filter(legacy).map((m) => ({ ...m, name: `${m.name} ${t('(legacy)')}` }))
+          return [...current, ...old]
+        })()
+      : curated.map(m => ({ ...m }))
+    if (selectedModel !== 'custom' && !base.some(m => m.id === selectedModel)) {
+      base.unshift({ id: selectedModel, name: selectedModel })
+    }
+    return [...base, AVAILABLE_MODELS[AVAILABLE_MODELS.length - 1]]
   }
 
   const handleModelChange = (modelId: string) => {
@@ -252,14 +321,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const handleAutoSummarizeChange = (on: boolean) => {
     setAutoSummarize(on)
     configService.setAutoSummarize(on)
-  }
-
-  // Provider settings apply immediately (no Save needed)
-  const refreshOllamaModels = async () => {
-    setOllamaReachable(null)
-    const models = await ollamaService.listModels()
-    setOllamaModels(models)
-    setOllamaReachable(models.length > 0)
   }
 
   const notifyLlmChanged = () => {
@@ -487,8 +548,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 onChange={(e) => handleProviderChange(e.target.value as LlmProvider)}
                 className="model-dropdown"
               >
-                <option value="gemini">{t('Gemini API (cloud)')}</option>
-                <option value="ollama">{t('Ollama (local, offline)')}</option>
+                {providers.map(p => (
+                  <option key={p.id} value={p.id}>{t(p.label)}</option>
+                ))}
               </select>
             </div>
 
@@ -589,7 +651,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 type={showApiKey ? 'text' : 'password'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={t('Enter your Gemini API key')}
+                placeholder={apiKeySaved ? t('Key saved - enter a new key to replace it') : t('Enter your Gemini API key')}
                 className="api-key-field"
               />
               <button
@@ -619,7 +681,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 className="model-dropdown"
                 disabled={managedMode && !!managedUser}
               >
-                {AVAILABLE_MODELS.map(model => (
+                {geminiModelOptions().map(model => (
                   <option key={model.id} value={model.id}>
                     {t(model.name)}
                   </option>
@@ -778,10 +840,10 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
               applies on change. The buttons only manage Gemini settings. */}
           {provider === 'gemini' && (
           <div className="setting-actions">
-            <button 
-              className="save-button" 
+            <button
+              className="save-button"
               onClick={handleSave}
-              disabled={!apiKey.trim() || (selectedModel === 'custom' && !customModel.trim())}
+              disabled={(!apiKey.trim() && !apiKeySaved) || (selectedModel === 'custom' && !customModel.trim())}
             >
               {saved ? `✓ ${t('Saved')}` : t('Save Settings')}
             </button>
@@ -795,10 +857,10 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 </button>
               </>
             ) : (
-              <button 
-                className="clear-button" 
+              <button
+                className="clear-button"
                 onClick={() => setConfirmClearApiKey(true)}
-                disabled={!apiKey}
+                disabled={!apiKey && !apiKeySaved}
               >
                 {t('Clear API Key')}
               </button>

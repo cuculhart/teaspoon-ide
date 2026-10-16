@@ -1,6 +1,5 @@
 import { configService } from './configService'
-import { geminiService } from './geminiService'
-import { ollamaService } from './ollamaService'
+import { getProvider } from './providers'
 
 // Pins a request to the provider/model captured when the user hit Send.
 // Without it, changing Settings mid-generation would silently retarget
@@ -10,13 +9,12 @@ export interface LlmPin {
   model?: string
 }
 
-// Provider router: the UI talks to llmService, which delegates to the
-// configured backend. Both implement the same sendMessage contract.
+// Provider router: the UI talks to llmService, which looks the provider up
+// in the registry (providers.ts) and delegates to it. All providers share
+// the same sendMessage contract via their descriptor.
 export const llmService = {
   isConfigured(): boolean {
-    return configService.getLlmProvider() === 'ollama'
-      ? ollamaService.isConfigured()
-      : geminiService.isConfigured()
+    return getProvider().isConfigured()
   },
 
   sendMessage(
@@ -27,9 +25,7 @@ export const llmService = {
     signal?: AbortSignal,
     pin?: LlmPin,
   ): Promise<string> {
-    const provider = pin?.provider ?? configService.getLlmProvider()
-    return provider === 'ollama'
-      ? ollamaService.sendMessage(message, context, history, onDelta, signal, pin?.model)
-      : geminiService.sendMessage(message, context, history, pin?.model)
+    const provider = getProvider(pin?.provider ?? configService.getLlmProvider())
+    return provider.sendMessage({ message, context, history, onDelta, signal, model: pin?.model })
   },
 }

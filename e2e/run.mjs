@@ -1,7 +1,10 @@
 // Adversarial E2E tests for Teaspoon IDE (res-and-dev.md), driven by
 // Playwright's Electron support.
 //
-// The Gemini API is stubbed via page.route(), so the "model" emits scripted
+// The Gemini API is stubbed by a local HTTP server: since v1.4.0 the app's
+// Gemini calls run in the Electron main process (LLM relay), which
+// page.route() cannot intercept, so each profile's llm_proxy_url endpoint
+// binding is pointed at the mock server. The "model" emits scripted
 // command output deterministically - no real API key, no network calls.
 // Each test launches the app with a private --user-data-dir, so the user's
 // real profile (API keys, chat history) is never touched.
@@ -55,20 +58,51 @@ const geminiReply = (text) => JSON.stringify({
   usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10, totalTokenCount: 20 },
 })
 
-// Route every Gemini API call to a scripted reply queue and capture the
-// request bodies, so a test can assert that a secret never leaves the app.
-async function mockGemini(page, replies, captured, { delayMs = 0 } = {}) {
-  await page.route(/generativelanguage\.googleapis\.com/, async (route) => {
-    captured.push(route.request().postData() ?? '')
-    if (delayMs) await new Promise((r) => setTimeout(r, delayMs))
-    const text = replies.length ? replies.shift() : 'E2E_DONE'
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      headers: { 'Access-Control-Allow-Origin': '*' },
-      body: geminiReply(text),
+// Mock LLM endpoint. The app's requests go through the main-process relay,
+// out of reach of page.route, so the profile's llm_proxy_url points here
+// and the key is sent as a Bearer credential the server ignores. Request
+// bodies are captured per test so it can assert that a secret or file
+// content never leaves the app.
+let mockPort = 0
+const mockState = { replies: [], captured: [], delayMs: 0 }
+const mockLog = path.join(os.tmpdir(), 'tsp-e2e-mock.log')
+
+function startMockServer() {
+  fs.writeFileSync(mockLog, '')
+  const server = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', (c) => { body += c })
+    req.on('end', () => {
+      fs.appendFileSync(mockLog, `${req.method} ${req.url} bodyLen=${body.length}\n`)
+      const respond = () => {
+        if (req.method === 'GET') {
+          // llm-list-models health/model probe - return an empty list
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ models: [] }))
+          return
+        }
+        mockState.captured.push(body)
+        const text = mockState.replies.length ? mockState.replies.shift() : 'E2E_DONE'
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(geminiReply(text))
+      }
+      if (mockState.delayMs) setTimeout(respond, mockState.delayMs)
+      else respond()
     })
   })
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      mockPort = server.address().port
+      resolve(server)
+    })
+  })
+}
+
+// Point the shared mock server at this test's reply queue / capture array.
+async function mockGemini(page, replies, captured, { delayMs = 0 } = {}) {
+  mockState.replies = replies
+  mockState.captured = captured
+  mockState.delayMs = delayMs
 }
 
 async function launchApp({ profileDir, focus = false }) {
@@ -77,19 +111,65 @@ async function launchApp({ profileDir, focus = false }) {
   // leaks into every child process and would launch the app as plain Node.
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
-  const app = await electron.launch({ executablePath: electronExe, args, env, timeout: 90000 })
-  const page = await app.firstWindow()
-  await page.addInitScript(({ focus }) => {
+  // A window occasionally never appears (Vite mid-optimization stall,
+  // single-instance lock residue). Each attempt is capped at 45s so the
+  // retries fit inside the test's time budget; a failed attempt is
+  // force-killed so it can't linger and starve the next launch.
+  let app, page
+  let lastErr = null
+  for (let attempt = 0; attempt < 3 && !page; attempt++) {
+    app = await electron.launch({ executablePath: electronExe, args, env, timeout: 45000 })
+    try {
+      page = await app.firstWindow({ timeout: 45000 })
+    } catch (e) {
+      lastErr = e
+      try { await app.close() } catch {}
+      try { app.process()?.kill() } catch {}
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+  }
+  if (!page) throw lastErr
+  // Surface renderer errors/console output - helps diagnose mid-run
+  // breakage that page-level assertions can't see.
+  const errLog = path.join(profileDir, 'renderer-errors.log')
+  page.on('pageerror', (e) => fs.appendFileSync(errLog, `[pageerror] ${e.message}\n${e.stack ?? ''}\n`))
+  page.on('console', (m) => {
+    if (m.type() === 'error') fs.appendFileSync(errLog, `[console.error] ${m.text()}\n`)
+  })
+  page.on('crash', () => fs.appendFileSync(errLog, `[crash] renderer crashed\n`))
+  page.on('framenavigated', (f) => {
+    if (f === page.mainFrame()) fs.appendFileSync(errLog, `[nav ${Date.now()}] ${f.url()}\n`)
+  })
+  await page.addInitScript(({ focus, proxyUrl }) => {
+    // Both values are migrated into the main-process secret store on first
+    // load (configService.migrateLegacySecret): gemini_api_key becomes the
+    // relay credential, llm_proxy_url redirects it to the mock server.
     localStorage.setItem('gemini_api_key', 'pw-e2e-key')
+    localStorage.setItem('llm_proxy_url', proxyUrl)
     localStorage.setItem('llm_provider', 'gemini')
     localStorage.setItem('language', 'en')
     localStorage.setItem('auto_summarize', '0')
     localStorage.removeItem('last_project_path')
     localStorage.removeItem('last_no_project_conv')
     localStorage.setItem('chat_focus', focus ? '1' : '0')
-  }, { focus })
+  }, { focus, proxyUrl: `http://127.0.0.1:${mockPort}` })
   await page.reload()
+  // Vite can force a full page reload shortly after connect (dependency
+  // re-optimization, ws reconnect) - a navigation mid-test destroys the
+  // execution context, so wait until the page has been quiet for a bit
+  // before handing it to the test.
+  {
+    let lastNav = Date.now()
+    page.on('framenavigated', (f) => {
+      if (f === page.mainFrame()) lastNav = Date.now()
+    })
+    const deadline = Date.now() + 30000
+    while (Date.now() - lastNav < 1500 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200))
+    }
+  }
   await page.waitForSelector('.chat-input textarea', { timeout: 60000 })
+  lastPage = page
   // Sanity: the private profile dir must be honored - otherwise the test
   // would touch the user's real chat history and API key.
   const userData = await app.evaluate(async ({ app }) => app.getPath('userData'))
@@ -130,6 +210,25 @@ function waitForMarker(page, text, timeout = 45000) {
 
 const tests = []
 const test = (name, fn) => tests.push({ name, fn })
+
+// Diagnostics dumped when a test fails - tells us whether the renderer
+// still believes the key exists.
+let lastPage = null
+async function dumpDiag() {
+  if (!lastPage || lastPage.isClosed()) return
+  try {
+    const d = await lastPage.evaluate(() => ({
+      secretsHas: window.electronAPI?.secretsHas ? window.electronAPI.secretsHas('gemini_api_key') : 'no-api',
+      lsKey: localStorage.getItem('gemini_api_key'),
+      lsProvider: localStorage.getItem('llm_provider'),
+      lsProxy: localStorage.getItem('llm_proxy_url'),
+      sendBtn: document.querySelector('.send-button')?.textContent,
+    }))
+    console.log(`     [diag] ${JSON.stringify(d)}`)
+  } catch (e) {
+    console.log(`     [diag] evaluate failed: ${e.message}`)
+  }
+}
 
 // G-1: the fixed exfiltration hole - a bare absolute-path READ_FILE with no
 // project open must be rejected, and the file's contents must never reach
@@ -336,10 +435,10 @@ test('D-1b truncated history is disclosed in the prompt', async () => {
       await page.click('.send-button')
       await page.waitForSelector('.chat-input textarea:not([disabled])', { timeout: 20000 })
     }
-    assert.ok(
-      (reqs[reqs.length - 1] ?? '').includes('only the last 20 messages are shown'),
-      'truncation note missing once history exceeded the window',
-    )
+    if (!(reqs[reqs.length - 1] ?? '').includes('only the last 20 messages are shown')) {
+      fs.writeFileSync(path.join(os.tmpdir(), 'd1b-last-req.json'), reqs[reqs.length - 1] ?? '(none)')
+      assert.fail(`truncation note missing once history exceeded the window (captured ${reqs.length} request(s); last body dumped)`)
+    }
     assert.ok(
       !(reqs[0] ?? '').includes('only the last 20 messages are shown'),
       'truncation note sent before any history was dropped',
@@ -439,6 +538,10 @@ async function main() {
     if (!fs.existsSync(f)) throw new Error(`missing: ${f} (run npm install / build first)`)
   }
 
+  const mockServer = await startMockServer()
+  console.log(`mock LLM endpoint at http://127.0.0.1:${mockPort}`)
+  process.on('exit', () => mockServer.close())
+
   // Reuse an existing dev server if one is already running.
   let vite = null
   if (!(await serverUp())) {
@@ -453,8 +556,12 @@ async function main() {
   await waitForServer()
   console.log(`dev server ready at ${BASE}\n`)
 
+  // Optional name filter: node e2e/run.mjs G-2 D-1b
+  const only = process.argv.slice(2)
+  const selected = only.length ? tests.filter((t) => only.some((o) => t.name.startsWith(o))) : tests
+
   const results = []
-  for (const { name, fn } of tests) {
+  for (const { name, fn } of selected) {
     process.stdout.write(`  ${name}\n`)
     const t0 = Date.now()
     try {
@@ -465,6 +572,7 @@ async function main() {
       results.push({ name, ok: false, error: e })
       console.log(`     ❌ FAIL (${((Date.now() - t0) / 1000).toFixed(1)}s)`)
       console.log(`     ${String(e && e.message ? e.message : e).split('\n').join('\n     ')}`)
+      await dumpDiag()
     }
   }
 

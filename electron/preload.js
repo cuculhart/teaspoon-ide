@@ -1,11 +1,21 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Secrets (API keys) - encrypted via safeStorage in the main process.
-  // Sync IPC so configService can stay synchronous.
+  // Secrets (API keys + endpoint bindings) - encrypted via safeStorage in
+  // the main process. Sync IPC so configService can stay synchronous.
+  // "*_api_key" credentials are write-only from here: the LLM relay is
+  // their only reader.
   secretsGet: (key) => ipcRenderer.sendSync('secrets-get', key),
+  secretsHas: (key) => ipcRenderer.sendSync('secrets-has', key),
   secretsSet: (key, value) => ipcRenderer.sendSync('secrets-set', key, value),
   secretsRemove: (key) => ipcRenderer.sendSync('secrets-remove', key),
+
+  // LLM relay - the main process attaches the stored credential and does
+  // the fetch; the key never enters the renderer.
+  llmRelay: (req) => ipcRenderer.invoke('llm-relay', req),
+  llmRelayAbort: (requestId) => ipcRenderer.send('llm-relay-abort', requestId),
+  llmListModels: (req) => ipcRenderer.invoke('llm-list-models', req),
+  managedUsage: () => ipcRenderer.invoke('managed-usage'),
 
   // File system operations
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),

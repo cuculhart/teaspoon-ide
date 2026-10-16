@@ -219,7 +219,7 @@ npm run dev
 
 1. Open Settings (⚙️)
 2. Choose an LLM provider:
-   - **Gemini API**: Enter your API key and pick a model (default: gemini-3.8-flash). Optionally configure a LiteLLM proxy
+   - **Gemini API**: Enter your API key and pick a model (default: gemini-3.8-flash). Optionally configure a LiteLLM proxy. The key is encrypted via the OS keychain and API calls run in the Electron main process - the renderer never sees the key
    - **Ollama**: Start Ollama locally, then pick the endpoint and model (installed models are auto-detected). Optionally cap CPU Threads so generation leaves cores free for other work, and set Thinking (On/Off/Model default) for reasoning-capable models
 3. Send a message in the chat
 

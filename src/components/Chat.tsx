@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { llmService } from '../services/llmService'
+import { getProvider } from '../services/providers'
 import { configService } from '../services/configService'
 import { managedService } from '../services/managedService'
 import { projectService } from '../services/projectService'
@@ -1282,22 +1283,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
   useEffect(() => {
     const refreshLlm = () => {
       setIsConfigured(llmService.isConfigured())
-
-      if (configService.getLlmProvider() === 'ollama') {
-        setCurrentModel(`ollama:${configService.getOllamaModel()}`)
-        return
-      }
-      const managedModel = configService.getManagedCredentials()?.model
-      if (managedModel) {
-        setCurrentModel(managedModel)
-        return
-      }
-      const savedModel = configService.getGeminiModel()
-      if (savedModel === 'custom') {
-        setCurrentModel(configService.getGeminiCustomModel() || 'Custom')
-      } else {
-        setCurrentModel(savedModel || 'gemini-3.8-flash')
-      }
+      setCurrentModel(getProvider().modelLabel())
     }
     refreshLlm()
     // Settings can switch provider/model while the chat stays mounted
@@ -1378,14 +1364,9 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
     // Pin provider+model for this whole run: changing Settings while a
     // response is generating must not retarget later agent-loop steps or
     // relabel the in-flight reply.
-    const runProvider = configService.getLlmProvider()
-    const runModelName = runProvider === 'ollama'
-      ? configService.getOllamaModel()
-      : configService.getGeminiModel() === 'custom'
-        ? configService.getGeminiCustomModel()
-        : configService.getGeminiModel()
+    const runProvider = getProvider()
     const runLabel = currentModel
-    const llmPin = { provider: runProvider, model: runModelName || undefined }
+    const llmPin = { provider: runProvider.id, model: runProvider.resolveModel() }
     setActiveModel(runLabel)
 
     // Create abort controller for this request
@@ -1478,15 +1459,18 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
       // The create-project prompt is offered at most once per user turn
       projectPromptShownRef.current = false
 
-      // Streaming (Ollama path): deltas accumulate into a live bubble
-      // rendered below the message list. On completion the parsed display
-      // becomes a normal committed message.
+      // Streaming: deltas accumulate into a live bubble rendered below the
+      // message list. Whether a stream callback is passed at all is decided
+      // by the pinned model's declared capability, not the provider id.
+      const supportsStream = runProvider.capabilities(llmPin.model || '').streaming
       const makeStreamHandler = () => {
         streamedRef.current = ''
-        const onDelta = (delta: string) => {
-          streamedRef.current += delta
-          setStreamingText(streamedRef.current)
-        }
+        const onDelta = supportsStream
+          ? (delta: string) => {
+              streamedRef.current += delta
+              setStreamingText(streamedRef.current)
+            }
+          : undefined
         return { onDelta, getStreamed: () => streamedRef.current }
       }
 

@@ -64,7 +64,17 @@ const deniedPath = () => ({ success: false, error: t('Path is outside the allowe
 // userData/secrets.json - never in renderer localStorage, where any XSS or
 // local process could read them. On platforms with no keychain the value
 // falls back to a 'plain:' prefix; exposure then matches the old scheme.
-const SECRET_KEYS = new Set(['gemini_api_key', 'managed_api_key'])
+// Secret-store key rules. Credentials match "*_api_key" and are
+// write-only from the renderer: it may set, existence-check, and remove
+// them, but never read them back - the LLM relay below is their only
+// reader. Endpoint bindings (the proxy/server URLs those credentials get
+// sent to) stay readable for the Settings UI; keeping them in this store
+// means the relay trusts its own copy rather than a renderer-supplied
+// destination URL.
+const API_KEY_SECRET = /^[a-z][a-z0-9_]{0,63}_api_key$/
+const SECRET_ENDPOINT_KEYS = new Set(['llm_proxy_url', 'managed_proxy_url', 'managed_server_url'])
+const isSecretKey = (key) => typeof key === 'string' && (API_KEY_SECRET.test(key) || SECRET_ENDPOINT_KEYS.has(key))
+const isReadableSecret = (key) => SECRET_ENDPOINT_KEYS.has(key)
 let secretsCache = null
 
 function secretsFile() {
@@ -109,22 +119,139 @@ function decodeSecret(stored) {
 
 function setupIpcHandlers() {
   // Sync IPC keeps configService's synchronous API unchanged.
+  // secrets-get refuses credentials: only non-credential endpoint
+  // bindings are readable (for the Settings UI).
   ipcMain.on('secrets-get', (event, key) => {
-    event.returnValue = SECRET_KEYS.has(key) ? decodeSecret(loadSecrets()[key]) : null
+    event.returnValue = isReadableSecret(key) ? decodeSecret(loadSecrets()[key]) : null
+  })
+  ipcMain.on('secrets-has', (event, key) => {
+    const value = isSecretKey(key) ? decodeSecret(loadSecrets()[key]) : null
+    event.returnValue = value !== null && value !== ''
   })
   ipcMain.on('secrets-set', (event, key, value) => {
-    if (SECRET_KEYS.has(key) && typeof value === 'string') {
+    if (isSecretKey(key) && typeof value === 'string') {
       loadSecrets()[key] = encodeSecret(value)
       saveSecrets()
     }
     event.returnValue = true
   })
   ipcMain.on('secrets-remove', (event, key) => {
-    if (SECRET_KEYS.has(key)) {
+    if (isSecretKey(key)) {
       delete loadSecrets()[key]
       saveSecrets()
     }
     event.returnValue = true
+  })
+
+  // --- LLM relay ---
+  // The renderer names a credential slot and a request path; this
+  // process resolves the destination and attaches the stored key. A relay
+  // request carries no URL, so ordinary renderer code cannot read the key
+  // or pick the host - the endpoint bindings it can legitimately change
+  // (Settings) live in the same secret store as the key itself.
+  const llmRequests = new Map() // requestId -> AbortController
+  const LLM_TIMEOUT_MS = 120000
+
+  function llmEndpoint(credential) {
+    const s = loadSecrets()
+    if (credential === 'managed') {
+      const key = decodeSecret(s['managed_api_key'])
+      const proxy = decodeSecret(s['managed_proxy_url'])
+      if (!key || !proxy) return null
+      return { base: String(proxy).replace(/\/+$/, ''), headers: { Authorization: `Bearer ${key}` } }
+    }
+    const key = decodeSecret(s['gemini_api_key'])
+    if (!key) return null
+    const proxy = decodeSecret(s['llm_proxy_url'])
+    if (proxy) {
+      return { base: String(proxy).replace(/\/+$/, ''), headers: { Authorization: `Bearer ${key}` } }
+    }
+    return { base: 'https://generativelanguage.googleapis.com', headers: { 'x-goog-api-key': key } }
+  }
+
+  ipcMain.handle('llm-relay', async (event, req) => {
+    const { credential, requestId, method, path: reqPath, body } = req || {}
+    const ep = llmEndpoint(credential)
+    if (!ep) return { ok: false, status: 0, error: 'No stored credential for this provider' }
+    if (typeof reqPath !== 'string' || !reqPath.startsWith('/') || reqPath.includes('://') || reqPath.includes('..')) {
+      return { ok: false, status: 0, error: 'Invalid request path' }
+    }
+    const ctrl = new AbortController()
+    if (typeof requestId === 'string' && requestId) llmRequests.set(requestId, ctrl)
+    const timer = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS)
+    try {
+      const res = await fetch(ep.base + reqPath, {
+        method: method || 'POST',
+        headers: { 'Content-Type': 'application/json', ...ep.headers },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal,
+      })
+      const text = await res.text()
+      let json = null
+      try { json = JSON.parse(text) } catch { /* non-JSON error body */ }
+      if (res.ok) return { ok: true, status: res.status, json }
+      return {
+        ok: false,
+        status: res.status,
+        error: (json && json.error && json.error.message) || text.slice(0, 500) || res.statusText,
+      }
+    } catch (e) {
+      const aborted = ctrl.signal.aborted
+      return { ok: false, status: 0, aborted, error: aborted ? 'aborted' : String((e && e.message) || e) }
+    } finally {
+      clearTimeout(timer)
+      llmRequests.delete(requestId)
+    }
+  })
+
+  ipcMain.on('llm-relay-abort', (event, requestId) => {
+    llmRequests.get(requestId)?.abort()
+  })
+
+  // GET /v1beta/models through the same credential resolution as
+  // llm-relay. Returns only models that can generateContent.
+  ipcMain.handle('llm-list-models', async (event, req) => {
+    const ep = llmEndpoint(req && req.credential)
+    if (!ep) return { ok: false, models: [] }
+    try {
+      const res = await fetch(`${ep.base}/v1beta/models`, {
+        headers: ep.headers,
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!res.ok) return { ok: false, status: res.status, models: [] }
+      const data = await res.json()
+      const models = (data.models || [])
+        .filter((m) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+        .map((m) => ({ id: String(m.name || '').replace(/^models\//, ''), name: m.displayName || '', version: m.version || '' }))
+        .filter((m) => m.id)
+      return { ok: true, models }
+    } catch {
+      return { ok: false, models: [] }
+    }
+  })
+
+  // Per-key spend from the management server, called here so the managed
+  // key never enters the renderer.
+  ipcMain.handle('managed-usage', async () => {
+    const s = loadSecrets()
+    const key = decodeSecret(s['managed_api_key'])
+    const base = String(decodeSecret(s['managed_server_url']) || '').replace(/\/+$/, '')
+    if (!key || !base) return null
+    try {
+      const res = await fetch(`${base}/api/usage`, {
+        headers: { Authorization: `Bearer ${key}` },
+        signal: AbortSignal.timeout(10000),
+      })
+      if (!res.ok) return null
+      const body = await res.json()
+      return {
+        spend: Number(body.spend) || 0,
+        maxBudget: body.max_budget != null ? Number(body.max_budget) : null,
+        resetAt: typeof body.budget_reset_at === 'string' ? body.budget_reset_at : undefined,
+      }
+    } catch {
+      return null
+    }
   })
 
   // File system operations

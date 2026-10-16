@@ -216,7 +216,7 @@ npm run dev
 
 1. 設定画面（⚙️）を開く
 2. LLM Providerを選択:
-   - **Gemini API**: APIキーを入力しモデルを選択（デフォルト: gemini-3.8-flash）。必要に応じてLiteLLMプロキシを設定
+   - **Gemini API**: APIキーを入力しモデルを選択（デフォルト: gemini-3.8-flash）。必要に応じてLiteLLMプロキシを設定。キーはOSキーチェーンで暗号化され、API呼び出しはElectronのメインプロセスで実行されるためレンダラーからキーには触れない
    - **Ollama**: ローカルでOllamaを起動し、エンドポイントとモデルを選択（インストール済みモデルは自動検出）。必要に応じて CPU Threads で推論スレッド数に上限を設けたり、Thinking（On/Off/Model default）で推論トレースの有無を切替可能
 3. チャットでメッセージを送信
 

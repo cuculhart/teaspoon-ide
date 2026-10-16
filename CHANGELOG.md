@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-16
+
+### Changed
+
+- LLM provider layer rebuilt around a registry (`src/services/providers.ts`).
+  Each provider declares its capabilities per model (streaming support,
+  prompt variant, history window); the chat loop now asks the registry
+  instead of branching on provider names.
+- Gemini calls moved from the `@google/generative-ai` SDK to direct REST
+  requests issued by the Electron main process through a new LLM relay.
+  The API key is attached in the main process and never enters the
+  renderer: `secrets-get` now refuses `*_api_key` credentials (write-only:
+  set / existence-check via `secrets-has` / remove), and the proxy and
+  managed endpoint URLs are stored in the secret store alongside the keys
+  so the relay resolves destinations itself.
+- The Settings API-key field no longer displays the saved key; it shows
+  "saved" state and replaces the key only when a new one is typed in.
+- The Gemini model dropdown now lists live models fetched from the API
+  (`llm-list-models` through the same relay, works for both personal key
+  and managed proxy sessions) with curated display names kept where they
+  match; falls back to the built-in list when unreachable. The API has no
+  deprecation flag, so models a full major version behind the newest
+  listed are demoted to the bottom with a "(legacy)" marker instead of
+  being hidden (custom ids still work).
+- Organization (managed) usage is fetched in the main process
+  (`managed-usage`), so the managed key also never enters the renderer.
+
+### Removed
+
+- The unused native function-calling path (`sendMessageWithTools` /
+  `executeTool`) in the Gemini service, and the `@google/generative-ai`
+  dependency itself. The model-agnostic text command protocol remains the
+  only tool mechanism.
+
 ## [1.3.1] - 2026-10-15
 
 ### Changed

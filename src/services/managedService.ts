@@ -92,23 +92,13 @@ class ManagedService {
   }
 
   // Per-key spend/budget from the management server (proxies LiteLLM
-  // /key/info). Returns null when not signed in or the server fails.
+  // /key/info). The call runs in the main process so the managed key
+  // never enters the renderer. Returns null when not signed in or the
+  // server fails.
   async getUsage(): Promise<{ spend: number; maxBudget: number | null; resetAt?: string } | null> {
-    const creds = configService.getManagedCredentials()
-    const base = configService.getManagedServerUrl().trim().replace(/\/+$/, '')
-    if (!creds || !base) return null
+    if (!configService.hasManagedSession() || !window.electronAPI?.managedUsage) return null
     try {
-      const res = await fetch(`${base}/api/usage`, {
-        headers: { Authorization: `Bearer ${creds.apiKey}` },
-        signal: AbortSignal.timeout(10000),
-      })
-      if (!res.ok) return null
-      const body = await res.json()
-      return {
-        spend: Number(body.spend) || 0,
-        maxBudget: body.max_budget != null ? Number(body.max_budget) : null,
-        resetAt: typeof body.budget_reset_at === 'string' ? body.budget_reset_at : undefined,
-      }
+      return await window.electronAPI.managedUsage()
     } catch {
       return null
     }

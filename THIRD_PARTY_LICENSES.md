@@ -21,7 +21,6 @@ installed application's resources (packaged builds).
 | simple-git | MIT | Steve King and contributors |
 | electron-store | MIT | Sindre Sorhus |
 | dotenv | BSD-2-Clause | Scott Motte and contributors |
-| @google/generative-ai | Apache-2.0 | Google LLC |
 
 ## Build-time dependencies
 

@@ -30,9 +30,49 @@ export interface ManagedSession {
   expiresAt?: number // epoch ms; absent = never expires client-side
 }
 
-// Storage keys holding secrets. These go through the main process's
-// safeStorage (OS keychain) via the sync bridge - never localStorage.
-const SECRET_STORAGE_KEYS = new Set(['gemini_api_key', 'managed_api_key'])
+// Storage keys routed through the main process's secret store
+// (safeStorage-encrypted secrets.json) via the sync bridge - never plain
+// localStorage. Two kinds live there:
+//   - credentials ("*_api_key") - write-only from the renderer; the
+//     main-process LLM relay is their only reader
+//   - endpoint bindings (proxy/server URLs) - still readable for the
+//     Settings UI, but stored alongside the key so the relay can trust
+//     its own copy rather than a renderer-supplied destination
+const API_KEY_STORAGE_KEY = /^[a-z][a-z0-9_]{0,63}_api_key$/
+const SECRET_STORAGE_KEYS = new Set([
+  'llm_proxy_url',
+  'managed_proxy_url',
+  'managed_server_url',
+])
+const isSecretStorageKey = (storageKey: string) =>
+  SECRET_STORAGE_KEYS.has(storageKey) || API_KEY_STORAGE_KEY.test(storageKey)
+
+// Config key -> persisted storage key
+const STORAGE_KEYS: Record<string, string> = {
+  GEMINI_API_KEY: 'gemini_api_key',
+  GEMINI_MODEL: 'gemini_model',
+  GEMINI_CUSTOM_MODEL: 'gemini_custom_model',
+  LLM_PROXY_URL: 'llm_proxy_url',
+  THEME: 'theme',
+  UI_FONT_FAMILY: 'ui_font_family',
+  UI_FONT_SIZE: 'ui_font_size',
+  CONTEXT_MODE: 'context_mode',
+  CONTEXT_MAX_FILES: 'context_max_files',
+  LLM_PROVIDER: 'llm_provider',
+  OLLAMA_BASE_URL: 'ollama_base_url',
+  OLLAMA_MODEL: 'ollama_model',
+  OLLAMA_NUM_THREAD: 'ollama_num_thread',
+  OLLAMA_THINK: 'ollama_think',
+  LANGUAGE: 'language',
+  MANAGED_MODE: 'managed_mode',
+  MANAGED_SERVER_URL: 'managed_server_url',
+  MANAGED_API_KEY: 'managed_api_key',
+  MANAGED_PROXY_URL: 'managed_proxy_url',
+  MANAGED_USER: 'managed_user',
+  MANAGED_MODEL: 'managed_model',
+  MANAGED_MODELS: 'managed_models',
+  MANAGED_EXPIRY: 'managed_expiry',
+}
 
 class ConfigService {
   private config: Map<string, string> = new Map()
@@ -42,22 +82,34 @@ class ConfigService {
   }
 
   private readStorage(storageKey: string): string | null {
-    if (SECRET_STORAGE_KEYS.has(storageKey) && window.electronAPI?.secretsGet) {
+    if (isSecretStorageKey(storageKey) && window.electronAPI?.secretsGet) {
+      // Credentials are never read back - the main process keeps them.
+      if (API_KEY_STORAGE_KEY.test(storageKey)) {
+        this.migrateLegacySecret(storageKey)
+        return null
+      }
       const value = window.electronAPI.secretsGet(storageKey)
       if (value) return value
-      // One-time migration of keys saved by pre-safeStorage versions
-      const legacy = localStorage.getItem(storageKey)
-      if (legacy) {
-        window.electronAPI.secretsSet(storageKey, legacy)
-        localStorage.removeItem(storageKey)
-      }
-      return legacy
+      this.migrateLegacySecret(storageKey)
+      // Retry once - the migration above may have just stored a value
+      return window.electronAPI.secretsGet(storageKey)
     }
     return localStorage.getItem(storageKey)
   }
 
+  // One-time migration of values saved by pre-safeStorage versions.
+  // Works for both credential and endpoint keys; the migrated value is
+  // not returned so credentials stay out of renderer memory.
+  private migrateLegacySecret(storageKey: string): void {
+    const legacy = localStorage.getItem(storageKey)
+    if (legacy && window.electronAPI?.secretsSet) {
+      window.electronAPI.secretsSet(storageKey, legacy)
+      localStorage.removeItem(storageKey)
+    }
+  }
+
   private writeStorage(storageKey: string, value: string): void {
-    if (SECRET_STORAGE_KEYS.has(storageKey) && window.electronAPI?.secretsSet) {
+    if (isSecretStorageKey(storageKey) && window.electronAPI?.secretsSet) {
       window.electronAPI.secretsSet(storageKey, value)
       return
     }
@@ -65,11 +117,14 @@ class ConfigService {
   }
 
   private loadConfig() {
-    // Load from localStorage / OS keychain (secret keys)
-    const apiKey = this.readStorage('gemini_api_key')
+    // Load from localStorage / OS keychain (secret keys). Credential values
+    // are never cached in the renderer - they are only migrated forward,
+    // and read back exclusively by the main process.
+    this.migrateLegacySecret('gemini_api_key')
+    this.migrateLegacySecret('managed_api_key')
     const model = localStorage.getItem('gemini_model')
     const customModel = localStorage.getItem('gemini_custom_model')
-    const proxyUrl = localStorage.getItem('llm_proxy_url')
+    const proxyUrl = this.readStorage('llm_proxy_url')
     const theme = localStorage.getItem('theme')
     const uiFontFamily = localStorage.getItem('ui_font_family')
     const uiFontSize = localStorage.getItem('ui_font_size')
@@ -82,15 +137,13 @@ class ConfigService {
     const ollamaThink = localStorage.getItem('ollama_think')
     const language = localStorage.getItem('language')
     const managedMode = localStorage.getItem('managed_mode')
-    const managedServerUrl = localStorage.getItem('managed_server_url')
-    const managedApiKey = this.readStorage('managed_api_key')
-    const managedProxyUrl = localStorage.getItem('managed_proxy_url')
+    const managedServerUrl = this.readStorage('managed_server_url')
+    const managedProxyUrl = this.readStorage('managed_proxy_url')
     const managedUser = localStorage.getItem('managed_user')
     const managedModel = localStorage.getItem('managed_model')
     const managedModels = localStorage.getItem('managed_models')
     const managedExpiry = localStorage.getItem('managed_expiry')
 
-    if (apiKey) this.config.set('GEMINI_API_KEY', apiKey)
     if (model) this.config.set('GEMINI_MODEL', model)
     if (customModel) this.config.set('GEMINI_CUSTOM_MODEL', customModel)
     if (proxyUrl) this.config.set('LLM_PROXY_URL', proxyUrl)
@@ -107,7 +160,6 @@ class ConfigService {
     if (language) this.config.set('LANGUAGE', language)
     if (managedMode) this.config.set('MANAGED_MODE', managedMode)
     if (managedServerUrl) this.config.set('MANAGED_SERVER_URL', managedServerUrl)
-    if (managedApiKey) this.config.set('MANAGED_API_KEY', managedApiKey)
     if (managedProxyUrl) this.config.set('MANAGED_PROXY_URL', managedProxyUrl)
     if (managedUser) this.config.set('MANAGED_USER', managedUser)
     if (managedModel) this.config.set('MANAGED_MODEL', managedModel)
@@ -120,50 +172,31 @@ class ConfigService {
   }
 
   set(key: string, value: string): void {
-    this.config.set(key, value)
-    
-    // Sync to persistent storage (secrets go via writeStorage to the keychain)
-    const STORAGE_KEYS: Record<string, string> = {
-      GEMINI_API_KEY: 'gemini_api_key',
-      GEMINI_MODEL: 'gemini_model',
-      GEMINI_CUSTOM_MODEL: 'gemini_custom_model',
-      LLM_PROXY_URL: 'llm_proxy_url',
-      THEME: 'theme',
-      UI_FONT_FAMILY: 'ui_font_family',
-      UI_FONT_SIZE: 'ui_font_size',
-      CONTEXT_MODE: 'context_mode',
-      CONTEXT_MAX_FILES: 'context_max_files',
-      LLM_PROVIDER: 'llm_provider',
-      OLLAMA_BASE_URL: 'ollama_base_url',
-      OLLAMA_MODEL: 'ollama_model',
-      OLLAMA_NUM_THREAD: 'ollama_num_thread',
-      OLLAMA_THINK: 'ollama_think',
-      LANGUAGE: 'language',
-      MANAGED_MODE: 'managed_mode',
-      MANAGED_SERVER_URL: 'managed_server_url',
-      MANAGED_API_KEY: 'managed_api_key',
-      MANAGED_PROXY_URL: 'managed_proxy_url',
-      MANAGED_USER: 'managed_user',
-      MANAGED_MODEL: 'managed_model',
-      MANAGED_MODELS: 'managed_models',
-      MANAGED_EXPIRY: 'managed_expiry',
-    }
     const storageKey = STORAGE_KEYS[key]
+    // Credential values are written through to the secret store but never
+    // cached in renderer memory.
+    if (storageKey && API_KEY_STORAGE_KEY.test(storageKey) && window.electronAPI?.secretsSet) {
+      this.config.delete(key)
+      this.writeStorage(storageKey, value)
+      return
+    }
+    this.config.set(key, value)
+
+    // Sync to persistent storage (secrets go via writeStorage to the keychain)
     if (storageKey) this.writeStorage(storageKey, value)
   }
 
   private remove(key: string, storageKey: string): void {
     this.config.delete(key)
-    if (SECRET_STORAGE_KEYS.has(storageKey) && window.electronAPI?.secretsRemove) {
+    if (isSecretStorageKey(storageKey) && window.electronAPI?.secretsRemove) {
       window.electronAPI.secretsRemove(storageKey)
       return
     }
     localStorage.removeItem(storageKey)
   }
 
-  getGeminiApiKey(): string | undefined {
-    return this.get('GEMINI_API_KEY')
-  }
+  // Note: no getGeminiApiKey() - the stored key is never read back into
+  // the renderer. Existence is checked via hasGeminiApiKey().
 
   getGeminiModel(): string {
     return this.get('GEMINI_MODEL') || 'gemini-3.8-flash'
@@ -441,6 +474,20 @@ class ConfigService {
     this.remove('MANAGED_EXPIRY', 'managed_expiry')
   }
 
+  // Existence check for a stored secret without reading the value -
+  // goes through the main process's secrets-has (or localStorage in
+  // non-Electron fallbacks).
+  private hasSecret(storageKey: string): boolean {
+    if (window.electronAPI?.secretsHas) {
+      return !!window.electronAPI.secretsHas(storageKey)
+    }
+    return !!localStorage.getItem(storageKey)
+  }
+
+  hasGeminiApiKey(): boolean {
+    return this.hasSecret('gemini_api_key')
+  }
+
   // Model ids this session's key may use (empty = unrestricted/unknown)
   getManagedModels(): string[] {
     try {
@@ -457,17 +504,20 @@ class ConfigService {
     this.set('MANAGED_MODEL', model)
   }
 
-  // Active managed credentials, or undefined when there is no session or
-  // it has expired. Only meaningful while managed mode is enabled.
-  getManagedCredentials(): { apiKey: string; proxyUrl: string; model?: string; models?: string[] } | undefined {
-    if (!this.getManagedMode()) return undefined
-    const apiKey = this.get('MANAGED_API_KEY')
-    if (!apiKey) return undefined
+  // True while a managed session is active: mode on, a stored key
+  // present, and the session not expired.
+  hasManagedSession(): boolean {
+    if (!this.getManagedMode()) return false
     const expiry = this.getManagedSessionExpiry()
-    if (expiry && expiry <= Date.now()) return undefined
+    if (expiry && expiry <= Date.now()) return false
+    return this.hasSecret('managed_api_key')
+  }
+
+  // Non-secret session info (allowed models + selection). The credential
+  // and its endpoint stay in the secret store - the renderer never sees them.
+  getManagedSession(): { model?: string; models?: string[] } | undefined {
+    if (!this.hasManagedSession()) return undefined
     return {
-      apiKey,
-      proxyUrl: this.get('MANAGED_PROXY_URL') || '',
       model: this.get('MANAGED_MODEL'),
       models: this.getManagedModels(),
     }
@@ -475,7 +525,7 @@ class ConfigService {
 
   // Managed mode on + no valid session = show the sign-in gate.
   isManagedLocked(): boolean {
-    return this.getManagedMode() && !this.getManagedCredentials()
+    return this.getManagedMode() && !this.hasManagedSession()
   }
 
   // Clears the Recent Projects list shown in the Explorer
