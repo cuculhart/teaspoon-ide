@@ -114,12 +114,18 @@ export class GeminiService {
 
   // Model list for the Settings dropdown - fetched through the relay so
   // it works for both the personal key and a managed (proxy) session.
-  public async listModels(): Promise<ModelInfo[]> {
+  // listModelsResult also returns the HTTP status so the UI can flag a
+  // stored-but-rejected key (401/403) instead of silently falling back.
+  public async listModelsResult(): Promise<{ ok: boolean; status?: number; models: ModelInfo[] }> {
     const api = window.electronAPI
-    if (!api?.llmListModels || !this.isConfigured()) return []
+    if (!api?.llmListModels || !this.isConfigured()) return { ok: false, models: [] }
     const credential = configService.hasManagedSession() ? 'managed' : 'personal'
     const res = await api.llmListModels({ credential })
-    return res.ok && Array.isArray(res.models) ? res.models : []
+    return { ok: !!res.ok, status: res.status, models: Array.isArray(res.models) ? res.models : [] }
+  }
+
+  public async listModels(): Promise<ModelInfo[]> {
+    return (await this.listModelsResult()).models
   }
 
   public async sendMessage(message: string, context?: string, history: Array<{role: string, content: string}> = [], signal?: AbortSignal, modelOverride?: string): Promise<string> {

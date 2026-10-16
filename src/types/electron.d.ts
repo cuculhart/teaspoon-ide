@@ -24,7 +24,7 @@ export interface ElectronAPI {
   // LLM relay - main process attaches the stored credential and fetches.
   llmRelay: (req: LlmRelayRequest) => Promise<LlmRelayResult>
   llmRelayAbort: (requestId: string) => void
-  llmListModels: (req: { credential: 'personal' | 'managed' }) => Promise<{ ok: boolean; status?: number; models?: Array<{ id: string; name?: string }> }>
+  llmListModels: (req: { credential: 'personal' | 'managed' }) => Promise<{ ok: boolean; status?: number; models?: Array<{ id: string; name?: string; version?: string }> }>
   managedUsage: () => Promise<{ spend: number; maxBudget: number | null; resetAt?: string } | null>
   readFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string }>
   writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>

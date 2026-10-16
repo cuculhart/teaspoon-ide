@@ -243,6 +243,7 @@
   "Enter your Google Gemini API key to enable AI chat functionality. Get your API key from": "AIチャットを有効にするにはGoogle Gemini APIキーを入力してください。APIキーの取得先:",
   "Enter your Gemini API key": "Gemini APIキーを入力",
   "Key saved - enter a new key to replace it": "キーは保存済み - 差し替える場合は新しいキーを入力",
+  "The saved API key was rejected by the API. Enter a new key to replace it, or clear it.": "保存済みのAPIキーがAPIに拒否されました。新しいキーを入力して差し替えるか、クリアしてください。",
   "Model Selection": "モデル選択",
   "Select the Gemini model to use for AI chat. Different models have different capabilities and pricing.": "AIチャットで使うGeminiモデルを選択。モデルごとに機能と料金が異なります。",
   "Enter custom model name (e.g., gemini-3-pro-preview)": "カスタムモデル名を入力（例: gemini-3-pro-preview）",

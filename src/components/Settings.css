@@ -140,6 +140,11 @@
   text-decoration: underline;
 }
 
+.api-key-rejected {
+  color: var(--error);
+  margin-top: 8px;
+}
+
 .model-selection {
   display: flex;
   flex-direction: column;

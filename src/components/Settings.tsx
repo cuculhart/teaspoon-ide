@@ -81,6 +81,7 @@ const SettingsGroup: React.FC<SettingsGroupProps> = ({ title, open, onToggle, ch
 const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [apiKey, setApiKey] = useState('')
   const [apiKeySaved, setApiKeySaved] = useState(false)
+  const [apiKeyRejected, setApiKeyRejected] = useState(false)
   const [apiModels, setApiModels] = useState<Array<{ id: string; name?: string; version?: string }> | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -196,14 +197,18 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   }
 
   // Fetch the live model list through the main-process relay; falls back
-  // to the curated list in the dropdown when the fetch fails.
+  // to the curated list in the dropdown when the fetch fails. A 4xx means
+  // the stored key was rejected - flag it so "saved but invalid" is
+  // distinguishable from "saved and working".
   const refreshGeminiModels = async () => {
     if (!configService.hasGeminiApiKey()) {
       setApiModels(null)
+      setApiKeyRejected(false)
       return
     }
-    const models = await geminiService.listModels()
-    setApiModels(models.length > 0 ? models : null)
+    const res = await geminiService.listModelsResult()
+    setApiModels(res.models.length > 0 ? res.models : null)
+    setApiKeyRejected(res.status !== undefined && res.status >= 400 && res.status < 500)
   }
 
   const handleSave = () => {
@@ -234,6 +239,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const handleClear = () => {
     setApiKey('')
     setApiKeySaved(false)
+    setApiKeyRejected(false)
     setApiModels(null)
     configService.clearGeminiApiKey()
     setConfirmClearApiKey(false)
@@ -661,6 +667,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 {showApiKey ? '👁️' : '👁️‍🗨️'}
               </button>
             </div>
+            {apiKeyRejected && (
+              <p className="setting-description api-key-rejected">
+                {t('The saved API key was rejected by the API. Enter a new key to replace it, or clear it.')}
+              </p>
+            )}
           </div>
 
           <div className="setting-section">
