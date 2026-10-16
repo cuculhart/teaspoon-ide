@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so the relay resolves destinations itself.
 - The Settings API-key field no longer displays the saved key; it shows
   "saved" state and replaces the key only when a new one is typed in.
+  If the stored key is rejected by the API (4xx), a warning now appears
+  under the field so "saved but invalid" is distinguishable from
+  "saved and working".
 - The Gemini model dropdown now lists live models fetched from the API
   (`llm-list-models` through the same relay, works for both personal key
   and managed proxy sessions) with curated display names kept where they
