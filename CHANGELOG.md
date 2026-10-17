@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-17
+
+### Added
+
+- The Ollama "Thinking" setting now accepts effort levels (Low / Medium /
+  High) in addition to On/Off, passed to `/api/chat` as a string `think`
+  value for models that support levels (gpt-oss, qwen3, ...).
+- New Ollama "Context Size" setting, passed to `/api/chat` as
+  `options.num_ctx`. Empty keeps Ollama's default (4096); 8192+ is
+  recommended for agent loops, where the system prompt + tool results +
+  model reasoning can exceed the default and surface as an empty reply.
+- New Ollama "Temperature" setting, passed as `options.temperature`.
+- Agent-loop tool feedback now leads with a canonical verdict line
+  (`[RESULT] OK/FAILED/NO TESTS RAN` with test counts), so weak models
+  no longer have to interpret raw output to know whether a command
+  worked - a failing test run can no longer be misread as "command not
+  found", and a zero-test run is no longer reported as a pass.
+- Each agent-loop continuation now opens with a `[STATE]` digest listing
+  the files the model has already changed and read in the run - models
+  that forgot their own writes or re-verified finished work get the
+  facts back without relying on their memory.
+- Re-reading an unchanged file returns "unchanged since your previous
+  read" instead of the full content, saving a redundant prefill on every
+  repeat READ_FILE.
+
+### Changed
+
+- Switching the Ollama model in Settings now resets Context Size to the
+  Ollama default (empty = 4096), since a value tuned for one model is
+  not necessarily right for another.
+- Agent-loop calls (command turns, closing summaries, history
+  compaction) now send `temperature: 0.2` to Ollama when no Temperature
+  is configured - measured runs showed the model default (~1.0) causes
+  language drift and hallucinated details. Plain chat keeps the model
+  default when unset.
+
+### Fixed
+
+- `think` values incompatible with the selected Ollama model are now
+  mapped before the request instead of sent verbatim. Ollama silently
+  treats a level sent to a boolean-only model (qwen3.5) as "thinking on",
+  so levels now degrade to the nearest boolean (low -> off, medium/high
+  -> on); and `think: false` on always-reasoning models (gpt-oss and
+  gemma4 - measured: gemma4 returns a zero-content turn when thinking is
+  disabled) produced a reasoning-only turn that surfaced as an empty
+  reply, so "off" is now sent as `low`, their effective minimum.
+- An empty Ollama reply is now retried automatically up to twice inside
+  the agent loop. When the model emitted reasoning but no reply text
+  (gpt-oss-style commentary channel routing, which retries cannot fix),
+  the error now says the model is unsupported instead of reporting a
+  generic empty response.
+
 ## [1.4.0] - 2026-10-16
 
 ### Changed

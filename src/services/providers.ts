@@ -27,6 +27,10 @@ export interface SendArgs {
   onDelta?: (delta: string) => void
   signal?: AbortSignal
   model?: string
+  // True for harness-internal calls (agent loop, tool feedback turns,
+  // history compaction). Providers may apply agent-oriented defaults
+  // such as a low sampling temperature.
+  agent?: boolean
 }
 
 // 'main' transport = requests go through the main-process LLM relay so the
@@ -67,7 +71,7 @@ const ollamaProvider: ProviderDescriptor = {
   transport: 'renderer',
   isConfigured: () => ollamaService.isConfigured(),
   sendMessage: (a) =>
-    ollamaService.sendMessage(a.message, a.context, a.history, a.onDelta, a.signal, a.model),
+    ollamaService.sendMessage(a.message, a.context, a.history, a.onDelta, a.signal, a.model, a.agent),
   listModels: async () => (await ollamaService.listModels()).map((id) => ({ id })),
   capabilities: (m) => ollamaService.capabilities(m),
   resolveModel: () => configService.getOllamaModel(),

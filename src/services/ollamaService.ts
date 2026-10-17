@@ -1,4 +1,4 @@
-import { configService } from './configService'
+import { configService, type OllamaThink } from './configService'
 import { i18nService } from './i18nService'
 import { projectService } from './projectService'
 import {
@@ -23,6 +23,40 @@ function tagSizeBillions(model: string): number | null {
 const SMALL_MODEL_MAX_B = 3
 const SMALL_MODEL_HISTORY = 8
 
+// Models whose "think" field accepts an effort level ("low"/"medium"/
+// "high") rather than a plain boolean. Measured on Ollama 0.40: sending a
+// level to a boolean-only model (qwen3.5) does NOT error - it silently
+// turns thinking ON, so the level must be mapped back to a boolean here.
+// Measured on Ollama 0.40: gemma4 also accepts a level string ("low"
+// yields a shorter trace + normal content).
+const THINK_LEVELS_RE = /gpt-oss|qwen3(?!\.5)|gemma4/i
+// gpt-oss and gemma4 cannot disable thinking: "think": false produces a
+// reasoning-only turn that surfaces here as an empty reply. Their real
+// "off" is the lowest level.
+const THINK_ALWAYS_ON_RE = /gpt-oss|gemma4/i
+
+// Sampling temperature used for agent-loop calls when the user has not
+// set one. The measured failure modes of unset temperature (model
+// default ~1.0) were language drift and hallucinated details.
+export const AGENT_DEFAULT_TEMPERATURE = 0.2
+
+// Thrown when /api/chat returns no reply text. `thinkingOnly` marks the
+// case where the model emitted reasoning but no content (gpt-oss routes
+// tool intent to a non-content channel the text protocol cannot read) -
+// retrying cannot fix that, so the agent loop must not retry it.
+export class OllamaEmptyResponseError extends Error {
+  readonly thinkingOnly: boolean
+  constructor(thinkingOnly: boolean) {
+    super(
+      thinkingOnly
+        ? i18nService.t('The model produced reasoning but no reply text - it routes tool calls to a channel this protocol cannot read (e.g. gpt-oss) and is not supported by the text-command agent. Try a different model.')
+        : i18nService.t('Ollama returned an empty response'),
+    )
+    this.name = 'OllamaEmptyResponseError'
+    this.thinkingOnly = thinkingOnly
+  }
+}
+
 // Local LLM via Ollama's native /api/chat endpoint. The OpenAI-compatible
 // /v1 endpoint cannot carry options like num_thread, so the native API is
 // used. Same text-based file-command protocol as the Gemini path.
@@ -45,10 +79,25 @@ class OllamaService {
     const small = (tagSizeBillions(model) ?? Infinity) < SMALL_MODEL_MAX_B
     return {
       streaming: true,
-      thinking: 'optional',
+      thinking: THINK_ALWAYS_ON_RE.test(model) ? 'always-on' : 'optional',
       promptVariant: small ? 'compact' : 'full',
       historyWindow: small ? SMALL_MODEL_HISTORY : undefined,
     }
+  }
+
+  // One stored think value serves every model, but only some accept a
+  // level string. Degrade to something the model understands instead of
+  // sending an incompatible value:
+  //   - level for a boolean-only model (qwen3.5, ...) -> nearest boolean
+  //     ("low" -> off, "medium"/"high" -> on)
+  //   - "off" for an always-reasoning model (gpt-oss) -> its minimum
+  //     level, since false yields an empty reply
+  private resolveThink(think: OllamaThink | undefined, model: string): OllamaThink | undefined {
+    if (think === undefined) return undefined
+    if (typeof think === 'boolean') {
+      return think === false && THINK_ALWAYS_ON_RE.test(model) ? 'low' : think
+    }
+    return THINK_LEVELS_RE.test(model) ? think : think === 'low' ? false : true
   }
 
   // Model names installed in Ollama (for the Settings dropdown)
@@ -70,6 +119,7 @@ class OllamaService {
     onDelta?: (delta: string) => void,
     signal?: AbortSignal,
     modelOverride?: string,
+    agent?: boolean,
   ): Promise<string> {
     const model = modelOverride || this.getModel()
     const caps = this.capabilities(model)
@@ -102,7 +152,19 @@ class OllamaService {
     })
 
     const numThread = configService.getOllamaNumThread()
-    const think = configService.getOllamaThink()
+    const numCtx = configService.getOllamaNumCtx()
+    // User setting always wins; agent-loop calls fall back to a low
+    // default since measured runs showed unset temperature (model
+    // default ~1.0) causes drift/hallucination. Plain chat stays at the
+    // model default when unset.
+    const temperature = configService.getOllamaTemperature() ?? (agent ? AGENT_DEFAULT_TEMPERATURE : undefined)
+    const think = this.resolveThink(configService.getOllamaThink(), model)
+
+    const options = {
+      ...(numThread ? { num_thread: numThread } : {}),
+      ...(numCtx ? { num_ctx: numCtx } : {}),
+      ...(temperature !== undefined ? { temperature } : {}),
+    }
 
     let res: Response
     try {
@@ -113,7 +175,7 @@ class OllamaService {
           model,
           messages,
           stream: !!onDelta,
-          ...(numThread ? { options: { num_thread: numThread } } : {}),
+          ...(Object.keys(options).length ? { options } : {}),
           ...(think !== undefined ? { think } : {}),
         }),
         signal,
@@ -133,7 +195,8 @@ class OllamaService {
       const data = await res.json()
       const text = data?.message?.content
       if (typeof text !== 'string' || !text) {
-        throw new Error(i18nService.t('Ollama returned an empty response'))
+        const thinking = data?.message?.thinking
+        throw new OllamaEmptyResponseError(typeof thinking === 'string' && thinking.length > 0)
       }
       return text
     }
@@ -145,6 +208,7 @@ class OllamaService {
     const decoder = new TextDecoder()
     let buffer = ''
     let full = ''
+    let sawThinking = false
     let done = false
     while (!done) {
       const { done: eof, value } = await reader.read()
@@ -162,6 +226,9 @@ class OllamaService {
             full += piece
             onDelta(piece)
           }
+          if (typeof obj?.message?.thinking === 'string' && obj.message.thinking) {
+            sawThinking = true
+          }
           if (obj?.done) done = true
         } catch {
           // ignore malformed NDJSON chunk
@@ -169,7 +236,7 @@ class OllamaService {
       }
     }
     if (!full) {
-      throw new Error(i18nService.t('Ollama returned an empty response'))
+      throw new OllamaEmptyResponseError(sawThinking)
     }
     return full
   }

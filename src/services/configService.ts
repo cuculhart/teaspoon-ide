@@ -19,6 +19,10 @@ export type ContextMode = 'tree' | 'full'
 // 'gemini' = Google Gemini API (or LiteLLM proxy). 'ollama' = local Ollama.
 export type LlmProvider = 'gemini' | 'ollama'
 
+// Ollama "think" field: boolean on/off, or an effort level for models
+// that support levels (gpt-oss, qwen3, ...).
+export type OllamaThink = boolean | 'low' | 'medium' | 'high'
+
 // Credentials issued by an organization's management server, stored
 // separately from the personal Gemini key so signing out never destroys it.
 export interface ManagedSession {
@@ -62,6 +66,8 @@ const STORAGE_KEYS: Record<string, string> = {
   OLLAMA_BASE_URL: 'ollama_base_url',
   OLLAMA_MODEL: 'ollama_model',
   OLLAMA_NUM_THREAD: 'ollama_num_thread',
+  OLLAMA_NUM_CTX: 'ollama_num_ctx',
+  OLLAMA_TEMPERATURE: 'ollama_temperature',
   OLLAMA_THINK: 'ollama_think',
   LANGUAGE: 'language',
   MANAGED_MODE: 'managed_mode',
@@ -134,6 +140,8 @@ class ConfigService {
     const ollamaBaseUrl = localStorage.getItem('ollama_base_url')
     const ollamaModel = localStorage.getItem('ollama_model')
     const ollamaNumThread = localStorage.getItem('ollama_num_thread')
+    const ollamaNumCtx = localStorage.getItem('ollama_num_ctx')
+    const ollamaTemperature = localStorage.getItem('ollama_temperature')
     const ollamaThink = localStorage.getItem('ollama_think')
     const language = localStorage.getItem('language')
     const managedMode = localStorage.getItem('managed_mode')
@@ -156,6 +164,8 @@ class ConfigService {
     if (ollamaBaseUrl) this.config.set('OLLAMA_BASE_URL', ollamaBaseUrl)
     if (ollamaModel) this.config.set('OLLAMA_MODEL', ollamaModel)
     if (ollamaNumThread) this.config.set('OLLAMA_NUM_THREAD', ollamaNumThread)
+    if (ollamaNumCtx) this.config.set('OLLAMA_NUM_CTX', ollamaNumCtx)
+    if (ollamaTemperature) this.config.set('OLLAMA_TEMPERATURE', ollamaTemperature)
     if (ollamaThink) this.config.set('OLLAMA_THINK', ollamaThink)
     if (language) this.config.set('LANGUAGE', language)
     if (managedMode) this.config.set('MANAGED_MODE', managedMode)
@@ -359,19 +369,58 @@ class ConfigService {
     }
   }
 
-  // Thinking on/off for reasoning models (qwen3.5, Saluki, ...), sent as
-  // the "think" field of /api/chat. undefined = let the model decide
-  // (most thinking models default to on).
-  getOllamaThink(): boolean | undefined {
-    const value = this.get('OLLAMA_THINK')
-    return value === '1' ? true : value === '0' ? false : undefined
+  // Context window passed to Ollama as options.num_ctx. Empty = Ollama's
+  // own default (4096), which is too small for agent loops: the system
+  // prompt + file reads + reasoning can exhaust it mid-generation and
+  // surface as an empty reply. 8192+ is recommended for agent use.
+  getOllamaNumCtx(): number | undefined {
+    const value = parseInt(this.get('OLLAMA_NUM_CTX') || '', 10)
+    return Number.isFinite(value) && value > 0 ? value : undefined
   }
 
-  setOllamaThink(think: boolean | undefined): void {
+  setOllamaNumCtx(ctx: number | undefined): void {
+    if (ctx && ctx > 0) {
+      this.set('OLLAMA_NUM_CTX', String(ctx))
+    } else {
+      this.remove('OLLAMA_NUM_CTX', 'ollama_num_ctx')
+    }
+  }
+
+  // Sampling temperature passed to Ollama as options.temperature. Empty =
+  // the model's own default (typically 1.0-ish - measured as a source of
+  // language drift and hallucinated details in agent loops). The agent
+  // loop falls back to a low default when unset; see ollamaService.
+  getOllamaTemperature(): number | undefined {
+    const value = parseFloat(this.get('OLLAMA_TEMPERATURE') || '')
+    return Number.isFinite(value) && value >= 0 && value <= 2 ? value : undefined
+  }
+
+  setOllamaTemperature(temperature: number | undefined): void {
+    if (temperature !== undefined && temperature >= 0 && temperature <= 2) {
+      this.set('OLLAMA_TEMPERATURE', String(temperature))
+    } else {
+      this.remove('OLLAMA_TEMPERATURE', 'ollama_temperature')
+    }
+  }
+
+  // Thinking control for reasoning models (qwen3.5, gpt-oss, ...), sent
+  // as the "think" field of /api/chat: boolean on/off, or an effort level
+  // for models that accept one. gpt-oss cannot fully disable thinking -
+  // "low" is its minimum. undefined = let the model decide (most thinking
+  // models default to on).
+  getOllamaThink(): OllamaThink | undefined {
+    const value = this.get('OLLAMA_THINK')
+    if (value === '1') return true
+    if (value === '0') return false
+    if (value === 'low' || value === 'medium' || value === 'high') return value
+    return undefined
+  }
+
+  setOllamaThink(think: OllamaThink | undefined): void {
     if (think === undefined) {
       this.remove('OLLAMA_THINK', 'ollama_think')
     } else {
-      this.set('OLLAMA_THINK', think ? '1' : '0')
+      this.set('OLLAMA_THINK', think === true ? '1' : think === false ? '0' : think)
     }
   }
 

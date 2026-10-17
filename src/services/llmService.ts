@@ -24,8 +24,9 @@ export const llmService = {
     onDelta?: (delta: string) => void,
     signal?: AbortSignal,
     pin?: LlmPin,
+    agent?: boolean,
   ): Promise<string> {
     const provider = getProvider(pin?.provider ?? configService.getLlmProvider())
-    return provider.sendMessage({ message, context, history, onDelta, signal, model: pin?.model })
+    return provider.sendMessage({ message, context, history, onDelta, signal, model: pin?.model, agent })
   },
 }

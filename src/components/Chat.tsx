@@ -12,6 +12,8 @@ import CommandApproval from './CommandApproval'
 import CreateProjectModal from './CreateProjectModal'
 import { i18nService, useT } from '../services/i18nService'
 import { findFileCommands } from '../services/commandParser'
+import { OllamaEmptyResponseError } from '../services/ollamaService'
+import { commandResultVerdict, formatStateDigest, TEST_COMMAND_RE } from '../services/toolFeedback'
 import { renderMarkdown, MARKDOWN_CSS } from '../utils/markdown'
 import './Chat.css'
 
@@ -246,6 +248,15 @@ async function parseAndExecuteFileCommands(
     editsApplied?: number
     lastRunFailure?: { command: string; exitCode: number | null; timedOut: boolean; tail: string } | null
     preEditTestFailure?: { command: string; tail: string } | null
+    // Files read so far this run (absolute path -> content). A repeat
+    // READ_FILE with unchanged content gets a short-circuit reply instead
+    // of the full text - models re-read files they already have and each
+    // re-read costs a full prefill on local inference.
+    readCache?: Map<string, string>
+    // Paths (root-relative) for the next-turn state digest: files the
+    // model has read and files it has successfully changed.
+    readFiles?: Set<string>
+    modifiedFiles?: Set<string>
   }
 ): Promise<CommandExecutionResult> {
   const { commands, docSpans } = findFileCommands(response)
@@ -510,9 +521,21 @@ async function parseAndExecuteFileCommands(
       try {
         const result = await window.electronAPI.readFile(filePath)
         if (result.success) {
+          const rel = pathRelativeToRoot(filePath)
           console.log(`File read: ${filePath}`)
-          notes[i] = `📖 ${i18nService.t('Read file')}: ${pathRelativeToRoot(filePath)}`
-          feedback.push(`READ_FILE ${pathRelativeToRoot(filePath)} result:\n${result.content}`)
+          if (state?.readCache?.get(filePath) === result.content) {
+            // Same file, same content - the model is re-verifying a file
+            // it already has. Answer without re-sending the full text.
+            notes[i] = `📖 ${i18nService.t('Read file')}: ${rel} (${i18nService.t('unchanged')})`
+            feedback.push(
+              `READ_FILE ${rel}: unchanged since your previous read - the content you already received is still current. Do not read it again; use what you have.`
+            )
+          } else {
+            state?.readCache?.set(filePath, result.content ?? '')
+            state?.readFiles?.add(rel)
+            notes[i] = `📖 ${i18nService.t('Read file')}: ${rel}`
+            feedback.push(`READ_FILE ${rel} result:\n${result.content}`)
+          }
         } else {
           console.error(`Failed to read file: ${filePath}`, result.error)
           notes[i] = `⚠️ ${i18nService.t('Error reading file')} ${pathRelativeToRoot(filePath)}: ${result.error}`
@@ -662,7 +685,13 @@ async function parseAndExecuteFileCommands(
           : `✅ ${i18nService.t('Edited file')}: ${pathRelativeToRoot(item.path)}`
         feedback.push(`${label} ${pathRelativeToRoot(item.path)}: success`)
         batchEditSucceeded = true
-        if (state) state.editsApplied = (state.editsApplied ?? 0) + 1
+        if (state) {
+          state.editsApplied = (state.editsApplied ?? 0) + 1
+          state.modifiedFiles?.add(pathRelativeToRoot(item.path))
+          // The model already knows the new content - it wrote it - so a
+          // follow-up READ_FILE can be answered "unchanged" as well.
+          state.readCache?.set(item.path, edit.newContent)
+        }
 
         // Emit event to refresh explorer (and editor if the file is open)
         window.dispatchEvent(new CustomEvent('file-created', {
@@ -745,7 +774,7 @@ async function parseAndExecuteFileCommands(
               state.lastRunFailure = { command: r.command, exitCode: result.exitCode, timedOut: false, tail }
               // A test command failing before any edit was applied means
               // the failure pre-dates the change, not a regression.
-              const isTestCmd = /pytest|unittest|npm test|yarn test|pnpm test|cargo test|go test|jest|vitest|mocha/i.test(r.command)
+              const isTestCmd = TEST_COMMAND_RE.test(r.command)
               if (isTestCmd && (state.editsApplied ?? 0) === 0 && !state.preEditTestFailure) {
                 state.preEditTestFailure = { command: r.command, tail }
               }
@@ -766,8 +795,13 @@ async function parseAndExecuteFileCommands(
           } else if (state) {
             state.runFailStreak = 0
           }
+          // A canonical verdict line leads the result: weak models misread
+          // raw output (a failing test run was once diagnosed as "command
+          // not found"; a zero-test run as "all passed").
           feedback.push(
-            `RUN_COMMAND ${r.command} result - ${statusText}:\n${tail || '(no output)'}${hint}`
+            `RUN_COMMAND ${r.command} result - ${statusText}:\n` +
+            `${commandResultVerdict(r.command, result.exitCode, result.timedOut, tail)}\n` +
+            `${tail || '(no output)'}${hint}`
           )
           needsContinuation = true
           // A non-zero exit leaves the task unresolved until a command
@@ -1271,7 +1305,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
       (prior ? `\n\nMerge with the previous summary:\n${prior}` : '') +
       `\n\nExcerpt:\n${transcript}`
     try {
-      const summary = await llmService.sendMessage(prompt, undefined, [], () => {}, signal, llmPin)
+      const summary = await llmService.sendMessage(prompt, undefined, [], () => {}, signal, llmPin, true)
       const trimmed = summary.trim()
       if (!trimmed || signal.aborted) return
       contextSummaryRef.current = trimmed.slice(0, SUMMARY_TARGET_CHARS)
@@ -1452,6 +1486,9 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         editsApplied: 0,
         lastRunFailure: null as { command: string; exitCode: number | null; timedOut: boolean; tail: string } | null,
         preEditTestFailure: null as { command: string; tail: string } | null,
+        readCache: new Map<string, string>(),
+        readFiles: new Set<string>(),
+        modifiedFiles: new Set<string>(),
       }
       // One-shot guard: nudge the model at most once when it declares
       // completion while a failure is still unresolved.
@@ -1479,7 +1516,22 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
 
         const { onDelta, getStreamed } = makeStreamHandler()
         const callStart = performance.now()
-        const response = await llmService.sendMessage(currentInput, context, historyForRequest, onDelta, controller.signal, llmPin)
+        // A model that emits reasoning but no reply text routes its output
+        // to a channel this protocol cannot read (gpt-oss/harmony) - retry
+        // cannot fix that, so it surfaces immediately. A plain empty reply
+        // (context exhaustion, transient) gets a couple of retries.
+        let response = ''
+        for (let attempt = 0; ; attempt++) {
+          try {
+            response = await llmService.sendMessage(currentInput, context, historyForRequest, onDelta, controller.signal, llmPin, true)
+            break
+          } catch (e) {
+            if (e instanceof OllamaEmptyResponseError && !e.thinkingOnly && attempt < 2 && !controller.signal.aborted) {
+              continue
+            }
+            throw e
+          }
+        }
         const latencyMs = Math.round(performance.now() - callStart)
         // The original user turn went out as this request's prompt; add
         // it to the running history now so later agent-loop steps see it.
@@ -1544,8 +1596,11 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         }
 
         // Small models burn steps re-verifying finished work - tell them
-        // the remaining step budget and how to close out the task.
+        // the remaining step budget and how to close out the task. The
+        // STATE line first reminds them what they have already done so
+        // they neither redo it nor ask the user about it.
         currentInput =
+          formatStateDigest(agentState) +
           `Command execution results:\n${feedback.join('\n\n')}\n\n` +
           // Models often abandon a failed edit and keep reading files or
           // running tests instead of retrying it. While any write/edit is
@@ -1570,7 +1625,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         historyForRequest.push({ role: 'user', content: summaryInput, timestamp: Date.now() })
         const { onDelta: onSummaryDelta, getStreamed: getSummaryStreamed } = makeStreamHandler()
         const summaryStart = performance.now()
-        const summary = await llmService.sendMessage(summaryInput, context, historyForRequest, onSummaryDelta, controller.signal, llmPin)
+        const summary = await llmService.sendMessage(summaryInput, context, historyForRequest, onSummaryDelta, controller.signal, llmPin, true)
         const summaryLatencyMs = Math.round(performance.now() - summaryStart)
         const { display: summaryDisplay } = await parseAndExecuteFileCommands(summary, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, requestProject)
         if (controller.signal.aborted) return

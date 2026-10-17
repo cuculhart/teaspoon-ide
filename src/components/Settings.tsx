@@ -103,7 +103,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
   const [ollamaModel, setOllamaModel] = useState('gemma4:e4b')
   const [ollamaNumThread, setOllamaNumThread] = useState('')
-  const [ollamaThink, setOllamaThink] = useState<'default' | 'on' | 'off'>('default')
+  const [ollamaNumCtx, setOllamaNumCtx] = useState('')
+  const [ollamaTemperature, setOllamaTemperature] = useState('')
+  const [ollamaThink, setOllamaThink] = useState<'default' | 'on' | 'off' | 'low' | 'medium' | 'high'>('default')
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [ollamaReachable, setOllamaReachable] = useState<boolean | null>(null)
   const [languages, setLanguages] = useState<Array<{ code: string; label: string }>>([
@@ -166,8 +168,17 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
         setOllamaModel(configService.getOllamaModel())
         const nt = configService.getOllamaNumThread()
         setOllamaNumThread(nt ? String(nt) : '')
+        const nc = configService.getOllamaNumCtx()
+        setOllamaNumCtx(nc ? String(nc) : '')
+        const temp = configService.getOllamaTemperature()
+        setOllamaTemperature(temp !== undefined ? String(temp) : '')
         const think = configService.getOllamaThink()
-        setOllamaThink(think === undefined ? 'default' : think ? 'on' : 'off')
+        setOllamaThink(
+          think === undefined ? 'default'
+            : think === true ? 'on'
+            : think === false ? 'off'
+            : think
+        )
         if (p === 'ollama') {
           refreshOllamaModels()
         }
@@ -348,9 +359,16 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   }
 
   const handleOllamaModelChange = (value: string) => {
+    const changed = value.trim() !== configService.getOllamaModel()
     setOllamaModel(value)
     if (value.trim()) {
       configService.setOllamaModel(value.trim())
+      // A context size tuned for one model is not necessarily right for
+      // another, so switching models resets it to Ollama's default.
+      if (changed) {
+        configService.setOllamaNumCtx(undefined)
+        setOllamaNumCtx('')
+      }
       notifyLlmChanged()
     }
   }
@@ -361,9 +379,26 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
     configService.setOllamaNumThread(Number.isFinite(n) && n > 0 ? n : undefined)
   }
 
-  const handleOllamaThinkChange = (value: 'default' | 'on' | 'off') => {
+  const handleOllamaNumCtxChange = (value: string) => {
+    setOllamaNumCtx(value)
+    const n = parseInt(value, 10)
+    configService.setOllamaNumCtx(Number.isFinite(n) && n > 0 ? n : undefined)
+  }
+
+  const handleOllamaTemperatureChange = (value: string) => {
+    setOllamaTemperature(value)
+    const n = parseFloat(value)
+    configService.setOllamaTemperature(Number.isFinite(n) && n >= 0 && n <= 2 ? n : undefined)
+  }
+
+  const handleOllamaThinkChange = (value: 'default' | 'on' | 'off' | 'low' | 'medium' | 'high') => {
     setOllamaThink(value)
-    configService.setOllamaThink(value === 'default' ? undefined : value === 'on')
+    configService.setOllamaThink(
+      value === 'default' ? undefined
+        : value === 'on' ? true
+        : value === 'off' ? false
+        : value
+    )
   }
 
   // Clears Recent Projects (Explorer) and the Quick Open recent-files list.
@@ -621,20 +656,55 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                   {t("Threads Ollama may use for inference. Empty = Ollama's own default (varies by version); a lower number keeps the PC responsive during generation.")}
                 </p>
                 <div className="appearance-row">
+                  <label htmlFor="ollama-num-ctx">{t('Context Size')}</label>
+                  <input
+                    id="ollama-num-ctx"
+                    type="number"
+                    min="512"
+                    step="1024"
+                    value={ollamaNumCtx}
+                    onChange={(e) => handleOllamaNumCtxChange(e.target.value)}
+                    placeholder="4096"
+                    className="font-size-field"
+                  />
+                </div>
+                <p className="setting-description">
+                  {t("Context window sent to Ollama as num_ctx. Empty = Ollama's default (4096), which agent loops can exhaust mid-reply and surface as an empty response - 8192 or more is recommended.")}
+                </p>
+                <div className="appearance-row">
+                  <label htmlFor="ollama-temperature">{t('Temperature')}</label>
+                  <input
+                    id="ollama-temperature"
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    value={ollamaTemperature}
+                    onChange={(e) => handleOllamaTemperatureChange(e.target.value)}
+                    className="font-size-field"
+                  />
+                </div>
+                <p className="setting-description">
+                  {t('Sampling temperature sent to Ollama. Empty = model default (often ~1.0). Agent loops automatically use 0.2 when this is unset - measured runs showed the high default causes drift and hallucinated details. Lower = more deterministic.')}
+                </p>
+                <div className="appearance-row">
                   <label htmlFor="ollama-think">{t('Thinking')}</label>
                   <select
                     id="ollama-think"
                     value={ollamaThink}
-                    onChange={(e) => handleOllamaThinkChange(e.target.value as 'default' | 'on' | 'off')}
+                    onChange={(e) => handleOllamaThinkChange(e.target.value as 'default' | 'on' | 'off' | 'low' | 'medium' | 'high')}
                     className="model-dropdown"
                   >
                     <option value="default">{t('Model default')}</option>
                     <option value="on">{t('On')}</option>
                     <option value="off">{t('Off')}</option>
+                    <option value="low">{t('Low')}</option>
+                    <option value="medium">{t('Medium')}</option>
+                    <option value="high">{t('High')}</option>
                   </select>
                 </div>
                 <p className="setting-description">
-                  {t('Force reasoning on/off for models that support it (qwen3.5, gpt-oss, ...). Off = much faster replies on slow hardware.')}
+                  {t('Force reasoning on/off, or pick an effort level, for models that support it (qwen3.5, gpt-oss, gemma4, ...). Off/Low = much faster replies on slow hardware. gpt-oss and gemma4 cannot fully disable thinking - use Low for them.')}
                 </p>
                 <p className="setting-description">
                   {ollamaReachable === null && t('Checking Ollama...')}
