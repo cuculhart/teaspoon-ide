@@ -19,7 +19,6 @@ installed application's resources (packaged builds).
 | marked | MIT | Marked contributors |
 | DOMPurify | Apache-2.0 OR MPL-2.0 | Cure53 and contributors |
 | simple-git | MIT | Steve King and contributors |
-| electron-store | MIT | Sindre Sorhus |
 | dotenv | BSD-2-Clause | Scott Motte and contributors |
 
 ## Build-time dependencies
