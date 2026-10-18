@@ -109,6 +109,26 @@ const args = (r) => r.commands.map(c => c.arg)
   const r = findFileCommands('// READ_FILE: 資料.メモ/file.txt')
   check('cjk dir kept', r.commands.length === 1 && r.commands[0].arg === '資料.メモ/file.txt', JSON.stringify(args(r)))
 }
+// --- observed failure (qwen3.5:4b T1-2): quoted grep pattern matched nothing ---
+{
+  const r = findFileCommands('// GREP: "member.*discount"')
+  check('quoted grep stripped', r.commands.length === 1 && r.commands[0].arg === 'member.*discount', JSON.stringify(args(r)))
+}
+// --- single-quoted grep also stripped ---
+{
+  const r = findFileCommands('// GREP: \'total.*price\'')
+  check('squoted grep stripped', r.commands.length === 1 && r.commands[0].arg === 'total.*price', JSON.stringify(args(r)))
+}
+// --- inner quotes kept (not wrapped end-to-end) ---
+{
+  const r = findFileCommands('// GREP: "key": "value"')
+  check('inner quotes kept', r.commands.length === 1 && r.commands[0].arg === '"key": "value"', JSON.stringify(args(r)))
+}
+// --- quoted find pattern stripped ---
+{
+  const r = findFileCommands('// FIND_FILES: "*.test.py"')
+  check('quoted find stripped', r.commands.length === 1 && r.commands[0].arg === '*.test.py', JSON.stringify(args(r)))
+}
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

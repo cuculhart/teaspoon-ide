@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-18
+
+### Fixed
+
+- Agent-loop tool results (READ_FILE contents, command output) are now
+  kept in the running history for the whole run instead of surviving
+  only one step. A measured qwen3.5:4b run showed the model correctly
+  reporting "I read them but can't see the contents" - earlier file
+  contents had scrolled out of context, and the "unchanged" reply on
+  re-reads told it to use data it no longer had, trapping it in an
+  unrecoverable re-read loop.
+- GREP / FIND_FILES arguments wrapped in quotes by the model
+  (`// GREP: "member.*discount"`) no longer search for the quote
+  characters literally - a measured qwen3.5:4b agent run spent seven
+  turns re-quoting patterns and never found anything. A zero-match GREP
+  result now also carries a hint to simplify the pattern or READ_FILE
+  the expected file instead.
+
 ## [1.5.0] - 2026-10-17
 
 ### Added

@@ -488,7 +488,8 @@ async function parseAndExecuteFileCommands(
           if (result.success && result.matches) {
             notes[i] = `🔍 ${i18nService.t('Searched')} "${cmd.arg}": ${result.matches.length} ${i18nService.t('match(es)')}`
             const body = result.matches.map(m => `${m.file}:${m.line}: ${m.text}`).join('\n')
-            feedback.push(`GREP ${cmd.arg} result (${result.matches.length} matches${result.truncated ? ', truncated' : ''}):\n${body || '(no matches)'}`)
+            feedback.push(`GREP ${cmd.arg} result (${result.matches.length} matches${result.truncated ? ', truncated' : ''}):\n${body || '(no matches)'}` +
+              (result.matches.length === 0 ? '\nHint: nothing matched. The pattern may be too specific - try a single word, or READ_FILE the file you expect it in.' : ''))
           } else {
             notes[i] = `⚠️ ${i18nService.t('Search failed for')} "${cmd.arg}": ${result.error}`
             feedback.push(`GREP ${cmd.arg}: failed - ${result.error}`)
@@ -1533,9 +1534,12 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
           }
         }
         const latencyMs = Math.round(performance.now() - callStart)
-        // The original user turn went out as this request's prompt; add
-        // it to the running history now so later agent-loop steps see it.
-        if (step === 0) historyForRequest.push(userMessage)
+        // Persist this step's prompt (the user message at step 0, tool
+        // results afterwards) into the running history. Without this each
+        // READ_FILE/RUN_COMMAND result exists in context for exactly one
+        // step - a model that re-reads the file gets only "unchanged",
+        // the original content having already scrolled out of reach.
+        historyForRequest.push({ role: 'user', content: currentInput, timestamp: Date.now() })
         const { display, feedback, needsContinuation, checkpoint } = await parseAndExecuteFileCommands(response, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, requestProject, agentState)
         if (controller.signal.aborted) break
         setStreamingText(null)

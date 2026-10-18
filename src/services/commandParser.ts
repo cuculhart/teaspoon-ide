@@ -52,6 +52,21 @@ function cleanPathArg(arg: string): string {
     )
 }
 
+// Small models wrap the whole search pattern in quotes ("member.*discount").
+// Verbatim, the quote characters become part of the regex/glob and every
+// match fails. Strip a single pair of matching outer quotes.
+function cleanSearchArg(arg: string): string {
+  const m = arg.match(/^"([^"\n]*)"$/) ?? arg.match(/^'([^'\n]*)'$/)
+  return m ? m[1].trim() : arg
+}
+
+const cleanArg = (type: FileCommand['type'], raw: string): string =>
+  type === 'run' ? cleanRunCommandArg(raw)
+  : type === 'grep' ? cleanSearchArg(raw)
+  : type === 'find' ? cleanSearchArg(cleanPathArg(raw))
+  : type === 'close' ? raw
+  : cleanPathArg(raw)
+
 function cleanRunCommandArg(command: string): string {
   const openerMatch = command.match(/^\s*(?:cmd(?:\.exe)?\s+\/c\s+)?(start|xdg-open|open)\s+(.*)$/i)
   if (!openerMatch) return command
@@ -121,7 +136,7 @@ export function findFileCommands(response: string): { commands: FileCommand[]; d
     const raw = match[2].trim()
     commands.push({
       type,
-      arg: type === 'run' ? cleanRunCommandArg(raw) : type === 'grep' ? raw : cleanPathArg(raw),
+      arg: cleanArg(type, raw),
       start: match.index,
       end: match.index + match[0].length,
     })
@@ -182,7 +197,7 @@ export function findFileCommands(response: string): { commands: FileCommand[]; d
     const raw = match[2].trim()
     commands.push({
       type,
-      arg: type === 'run' ? cleanRunCommandArg(raw) : type === 'grep' || type === 'close' ? raw : cleanPathArg(raw),
+      arg: cleanArg(type, raw),
       start: match.index,
       end: match.index + match[0].length,
     })
@@ -205,7 +220,7 @@ export function findFileCommands(response: string): { commands: FileCommand[]; d
     const body = String(obj.content ?? obj.body ?? '')
     commands.push({
       type: type === 'edit' && !body.includes('<<<<<<<') ? 'write' : type,
-      arg: type === 'run' ? cleanRunCommandArg(arg) : type === 'grep' || type === 'close' ? arg : cleanPathArg(arg),
+      arg: cleanArg(type === 'edit' && !body.includes('<<<<<<<') ? 'write' : type, arg),
       body: type === 'write' || type === 'edit' ? body : undefined,
       start: match.index,
       end: match.index + match[0].length,
@@ -245,7 +260,7 @@ export function findFileCommands(response: string): { commands: FileCommand[]; d
     const raw = match[2].trim()
     commands.push({
       type,
-      arg: type === 'run' ? cleanRunCommandArg(raw) : type === 'grep' || type === 'close' ? raw : cleanPathArg(raw),
+      arg: cleanArg(type, raw),
       start,
       end: match.index + match[0].length,
     })
