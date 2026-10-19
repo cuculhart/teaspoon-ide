@@ -60,6 +60,7 @@ const STORAGE_KEYS: Record<string, string> = {
   THEME: 'theme',
   UI_FONT_FAMILY: 'ui_font_family',
   UI_FONT_SIZE: 'ui_font_size',
+  CHAT_FONT_SIZE: 'chat_font_size',
   CONTEXT_MODE: 'context_mode',
   CONTEXT_MAX_FILES: 'context_max_files',
   LLM_PROVIDER: 'llm_provider',
@@ -134,6 +135,7 @@ class ConfigService {
     const theme = localStorage.getItem('theme')
     const uiFontFamily = localStorage.getItem('ui_font_family')
     const uiFontSize = localStorage.getItem('ui_font_size')
+    const chatFontSize = localStorage.getItem('chat_font_size')
     const contextMode = localStorage.getItem('context_mode')
     const contextMaxFiles = localStorage.getItem('context_max_files')
     const llmProvider = localStorage.getItem('llm_provider')
@@ -158,6 +160,7 @@ class ConfigService {
     if (theme) this.config.set('THEME', theme)
     if (uiFontFamily) this.config.set('UI_FONT_FAMILY', uiFontFamily)
     if (uiFontSize) this.config.set('UI_FONT_SIZE', uiFontSize)
+    if (chatFontSize) this.config.set('CHAT_FONT_SIZE', chatFontSize)
     if (contextMode) this.config.set('CONTEXT_MODE', contextMode)
     if (contextMaxFiles) this.config.set('CONTEXT_MAX_FILES', contextMaxFiles)
     if (llmProvider) this.config.set('LLM_PROVIDER', llmProvider)
@@ -263,6 +266,18 @@ class ConfigService {
 
   setUIFontSize(fontSize: number): void {
     this.set('UI_FONT_SIZE', String(fontSize))
+  }
+
+  // Chat panel font size - separate from the UI/editor size so chat text
+  // can be scaled on its own. 0/empty = the 13px CSS default.
+  getChatFontSize(): number | undefined {
+    const value = this.get('CHAT_FONT_SIZE')
+    const size = value ? parseInt(value, 10) : NaN
+    return Number.isFinite(size) && size > 0 ? size : undefined
+  }
+
+  setChatFontSize(fontSize: number): void {
+    this.set('CHAT_FONT_SIZE', String(fontSize))
   }
 
   getRecentProjects(): RecentProject[] {
@@ -575,6 +590,14 @@ class ConfigService {
   // Managed mode on + no valid session = show the sign-in gate.
   isManagedLocked(): boolean {
     return this.getManagedMode() && !this.hasManagedSession()
+  }
+
+  // Managed mode on + a stored key whose expiry has passed - the gate
+  // uses this to say "expired, sign in again" instead of the bare form.
+  hasExpiredManagedSession(): boolean {
+    if (!this.getManagedMode()) return false
+    const expiry = this.getManagedSessionExpiry()
+    return expiry !== undefined && expiry <= Date.now() && this.hasSecret('managed_api_key')
   }
 
   // Clears the Recent Projects list shown in the Explorer

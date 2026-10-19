@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-19
+
+### Added
+
+- New "Chat Font Size" setting (Appearance) that scales the whole chat
+  panel - messages, input box, header badges, and the conversation-list
+  rail - independently of the UI/editor font size. Empty keeps the
+  previous 13px size.
+- When a managed (organization) session expires, the sign-in gate now
+  says the session expired and pre-fills the username instead of showing
+  the bare form, and Settings shows the session's expiry time next to
+  "Signed in as".
+- Assistant replies now show the token counts reported by the provider
+  (Gemini usageMetadata, Ollama prompt_eval_count/eval_count) next to
+  the latency under each response. Counts are persisted with the chat
+  history like the other per-message metadata.
+- New theme: Silver Screen. A fully achromatic B&W-film palette on a
+  mid-gray #555 screen - syntax separates by luminance and weight (ink
+  keywords, chalk-white functions) instead of hue. The theme also adds
+  scope-limited chrome: silent-film intertitle styling on chat bubbles
+  (double-line frame, serif centered text, a speech-tail notch on each
+  card), a projection vignette with faint grain over the editor, and a
+  film sprocket-hole strip above the terminal. All of it is scoped to
+  [data-theme='silver'] so no other theme is affected.
+
+### Changed
+
+- The Font Family field now offers an "Installed Fonts" picker listing
+  the fonts on the machine (Chromium's Font Access API). It stays a
+  free-text input, so a font name can always be typed manually on
+  platforms where enumeration is unavailable or denied.
+- The API key visibility toggle now reads Show/Hide instead of emoji
+  glyphs (the "eye in speech bubble" sequence did not combine on
+  Windows and read ambiguously).
+
+### Fixed
+
+- Saving a Gemini API key together with a newly enabled LLM proxy no
+  longer reports the key as rejected: the proxy URL is now stored before
+  the key is re-validated, so the check runs through the proxy. LiteLLM
+  virtual keys that only work via the proxy were wrongly flagged because
+  validation ran against the direct API before the proxy setting was
+  persisted. Only actual auth rejections (400/401/403) flag the key now -
+  a 404 from a proxy that lacks the models route, or a 429 rate limit,
+  no longer does - and when a proxy is configured the message names the
+  proxy as the rejecting side.
+
 ## [1.5.1] - 2026-10-18
 
 ### Fixed

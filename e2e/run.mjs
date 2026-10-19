@@ -531,6 +531,59 @@ test('G-3  tampered conversation file renders but does not execute', async () =>
   } finally { await app.close() }
 })
 
+// R-1 (backlog T23): a dedup "unchanged" reply must be backed by data.
+// The model reads the same file twice; the second read is answered
+// "unchanged - use what you have" WITHOUT re-sending the content. That
+// claim is only true while the original tool result is still in the
+// request body, so this asserts the payload physically survives into
+// the next request's history portion - not just that the dedup fired.
+// readCache is run-scoped and nothing trims historyForRequest mid-run
+// today; if in-loop trimming or a larger MAX_STEPS ever drops old tool
+// results, this is the invariant that must hold (or the dedup claim
+// becomes a lie again - the v1.5.1 regression).
+test('R-1  dedup "unchanged" reply is backed by the retained payload', async () => {
+  const tmp = mkTmp('tsp-r1-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const payload = 'PAYLOAD_SENTINEL_R1_8675309'
+  fs.writeFileSync(path.join(proj, 'sentinel.txt'), `alpha\n${payload}\nomega\n`)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// READ_FILE: sentinel.txt',
+      '// READ_FILE: sentinel.txt',
+      'R1_DONE',
+    ], reqs)
+    await sendChat(page, 'read sentinel.txt twice please')
+    await waitForMarker(page, 'R1_DONE')
+    assert.ok(reqs.length >= 3, `expected >=3 LLM calls, got ${reqs.length}`)
+    // Sanity: the payload only enters context via the tool result - the
+    // first request carries the file name at most, never the content.
+    assert.ok(!reqs[0].includes(payload),
+      'payload leaked into the request before any read')
+    // Step 1's request carries the real content as the tool result.
+    assert.ok(reqs[1].includes(payload),
+      'first READ_FILE result did not carry the payload')
+    // Step 2's request: the current prompt is the dedup reply (it must
+    // NOT contain the payload), while an earlier history entry still
+    // carries the original tool result.
+    const body = JSON.parse(reqs[2])
+    const texts = (body.contents ?? [])
+      .map((c) => (c.parts ?? []).map((p) => p.text ?? '').join(''))
+    const last = texts[texts.length - 1] ?? ''
+    assert.ok(last.includes('unchanged since your previous read'),
+      `dedup reply did not fire - last request part was:\n${last}`)
+    assert.ok(!last.includes(payload),
+      'dedup reply unexpectedly re-sent the payload')
+    assert.ok(
+      texts.slice(0, -1).some((t) => t.includes(payload)),
+      'dedup claimed "use what you have" but the payload is gone from history',
+    )
+  } finally { await app.close() }
+})
+
 // ---------- runner ----------
 
 async function main() {

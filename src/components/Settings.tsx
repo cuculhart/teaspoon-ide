@@ -91,7 +91,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [useProxy, setUseProxy] = useState(false)
   const [theme, setTheme] = useState<ThemeMode>('system')
   const [fontFamily, setFontFamily] = useState('')
+  const [systemFonts, setSystemFonts] = useState<string[]>([])
   const [fontSize, setFontSize] = useState('')
+  const [chatFontSize, setChatFontSize] = useState('')
   const [historyCleared, setHistoryCleared] = useState(false)
   const [chatHistoryCleared, setChatHistoryCleared] = useState(false)
   const [confirmClearApiKey, setConfirmClearApiKey] = useState(false)
@@ -115,6 +117,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [managedMode, setManagedMode] = useState(false)
   const [managedServerUrl, setManagedServerUrl] = useState('')
   const [managedUser, setManagedUser] = useState<string | undefined>(undefined)
+  const [managedExpiry, setManagedExpiry] = useState<number | undefined>(undefined)
   const [managedModels, setManagedModels] = useState<string[]>([])
   const [managedModel, setManagedModel] = useState('')
   const [openGroups, setOpenGroups] = useState<Record<SettingsGroupId, boolean>>(loadOpenGroups)
@@ -159,6 +162,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
         setFontFamily(configService.getUIFontFamily() || '')
         const savedFontSize = configService.getUIFontSize()
         setFontSize(savedFontSize ? String(savedFontSize) : '')
+        const savedChatFontSize = configService.getChatFontSize()
+        setChatFontSize(savedChatFontSize ? String(savedChatFontSize) : '')
         setContextMode(configService.getContextMode())
         setContextMaxFiles(String(configService.getContextMaxFiles()))
         setAutoSummarize(configService.getAutoSummarize())
@@ -190,6 +195,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
           setManagedUser(configService.getManagedUser())
           setManagedModels(session.models || [])
           setManagedModel(session.model || '')
+          setManagedExpiry(configService.getManagedSessionExpiry())
         }
         window.electronAPI.listLanguages().then((res) => {
           if (res.success && res.languages) setLanguages(res.languages)
@@ -197,6 +203,23 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
       }
     }
     loadSettings()
+  }, [])
+
+  // Enumerate installed fonts via Chromium's Font Access API to feed the
+  // Font Family datalist. If it is unavailable or denied (some platforms
+  // / permission setups), the field silently stays a plain text input.
+  useEffect(() => {
+    let cancelled = false
+    const query = (window as { queryLocalFonts?: () => Promise<{ family: string }[]> })
+      .queryLocalFonts
+    if (!query) return
+    query.call(window).then((faces) => {
+      if (cancelled) return
+      const families = [...new Set(faces.map((f) => f.family))]
+        .sort((a, b) => a.localeCompare(b))
+      setSystemFonts(families)
+    }).catch(() => {})
+    return () => { cancelled = true }
   }, [])
 
   // Provider settings apply immediately (no Save needed)
@@ -208,9 +231,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   }
 
   // Fetch the live model list through the main-process relay; falls back
-  // to the curated list in the dropdown when the fetch fails. A 4xx means
-  // the stored key was rejected - flag it so "saved but invalid" is
-  // distinguishable from "saved and working".
+  // to the curated list in the dropdown when the fetch fails. An auth
+  // status (400/401/403) means the stored key was rejected - flag it so
+  // "saved but invalid" is distinguishable from "saved and working".
+  // Other 4xx (404 = proxy lacks the models route, 429 = rate limit)
+  // say nothing about the key, so they are not flagged.
   const refreshGeminiModels = async () => {
     if (!configService.hasGeminiApiKey()) {
       setApiModels(null)
@@ -219,10 +244,23 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
     }
     const res = await geminiService.listModelsResult()
     setApiModels(res.models.length > 0 ? res.models : null)
-    setApiKeyRejected(res.status !== undefined && res.status >= 400 && res.status < 500)
+    setApiKeyRejected(res.status === 400 || res.status === 401 || res.status === 403)
   }
 
   const handleSave = () => {
+    // The proxy URL must be stored before the key is re-validated below:
+    // the model-list fetch goes through whatever endpoint is saved, so
+    // writing it first keeps a proxy-only key from being checked
+    // (and rejected) against the direct API.
+    if (useProxy && proxyUrl.trim()) {
+      configService.setLlmProxyUrl(proxyUrl.trim())
+    } else {
+      configService.setLlmProxyUrl('')
+    }
+    configService.setGeminiModel(selectedModel)
+    if (selectedModel === 'custom' && customModel) {
+      configService.setGeminiCustomModel(customModel)
+    }
     // An empty field keeps the stored key - it is only replaced when a
     // new value is typed in.
     if (apiKey.trim()) {
@@ -230,17 +268,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
       setApiKeySaved(true)
       setApiKey('')
       setShowApiKey(false)
-      refreshGeminiModels()
     }
-    configService.setGeminiModel(selectedModel)
-    if (selectedModel === 'custom' && customModel) {
-      configService.setGeminiCustomModel(customModel)
-    }
-    if (useProxy && proxyUrl) {
-      configService.setLlmProxyUrl(proxyUrl)
-    } else {
-      configService.setLlmProxyUrl('')
-    }
+    refreshGeminiModels()
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     window.dispatchEvent(new Event('teaspoon:llm-changed'))
@@ -316,6 +345,13 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
     setFontSize(value)
     const size = parseInt(value, 10)
     configService.setUIFontSize(Number.isFinite(size) && size > 0 ? size : 0)
+    themeService.applyFont()
+  }
+
+  const handleChatFontSizeChange = (value: string) => {
+    setChatFontSize(value)
+    const size = parseInt(value, 10)
+    configService.setChatFontSize(Number.isFinite(size) && size > 0 ? size : 0)
     themeService.applyFont()
   }
 
@@ -499,6 +535,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 <option value="msx">{t('Modern Syntax eXtensible')}</option>
                 <option value="chaya">{t('Chaya')}</option>
                 <option value="coquette">{t('Coquette')}</option>
+                <option value="silver">{t('Silver Screen')}</option>
               </select>
             </div>
 
@@ -514,6 +551,25 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
               />
             </div>
 
+            {systemFonts.length > 0 && (
+              <div className="appearance-row">
+                <label htmlFor="font-family-picker">{t('Installed Fonts')}</label>
+                <select
+                  id="font-family-picker"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) handleFontFamilyChange(e.target.value)
+                  }}
+                  className="model-dropdown"
+                >
+                  <option value="">{t('Choose a font...')}</option>
+                  {systemFonts.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="appearance-row">
               <label htmlFor="font-size-input">{t('Font Size')}</label>
               <input
@@ -523,6 +579,21 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 max="32"
                 value={fontSize}
                 onChange={(e) => handleFontSizeChange(e.target.value)}
+                placeholder="13"
+                className="font-size-field"
+              />
+              <span className="appearance-unit">px</span>
+            </div>
+
+            <div className="appearance-row">
+              <label htmlFor="chat-font-size-input">{t('Chat Font Size')}</label>
+              <input
+                id="chat-font-size-input"
+                type="number"
+                min="8"
+                max="32"
+                value={chatFontSize}
+                onChange={(e) => handleChatFontSizeChange(e.target.value)}
                 placeholder="13"
                 className="font-size-field"
               />
@@ -734,12 +805,14 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 className="toggle-visibility"
                 onClick={() => setShowApiKey(!showApiKey)}
               >
-                {showApiKey ? '👁️' : '👁️‍🗨️'}
+                {showApiKey ? t('Hide') : t('Show')}
               </button>
             </div>
             {apiKeyRejected && (
               <p className="setting-description api-key-rejected">
-                {t('The saved API key was rejected by the API. Enter a new key to replace it, or clear it.')}
+                {configService.getLlmProxyUrl()
+                  ? t('The saved API key was rejected by the proxy. Check the key and proxy URL, or enter a new key to replace it.')
+                  : t('The saved API key was rejected by the API. Enter a new key to replace it, or clear it.')}
               </p>
             )}
           </div>
@@ -856,6 +929,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 {managedUser
                   ? `${t('Signed in as')} ${managedUser}`
                   : t('Not signed in - the app will ask for sign-in on the next screen.')}
+                {managedUser && managedExpiry && (
+                  ` · ${t('Session expires')} ${new Date(managedExpiry).toLocaleString()}`
+                )}
                 {managedUser && (
                   <>
                     {' '}

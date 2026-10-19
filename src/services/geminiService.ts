@@ -3,7 +3,7 @@ import { i18nService } from './i18nService'
 import { APP_CONTEXT_PROMPT, AGENT_INSTRUCTIONS, NO_PROJECT_INSTRUCTIONS, hostOsName, hostOpenCommand } from './agentPrompt'
 import { projectService } from './projectService'
 import { extractResponseText, generateContentPath } from './geminiRest'
-import type { ModelCaps, ModelInfo } from './providers'
+import type { ModelCaps, ModelInfo, TokenUsage } from './providers'
 
 // Gemini via the main-process LLM relay: the renderer builds the request
 // path and body, the main process attaches the stored credential and does
@@ -71,7 +71,7 @@ export class GeminiService {
 
   // One generateContent call through the relay. Timeout and user cancel
   // both abort the in-flight HTTP request in the main process.
-  private async generate(model: string, contents: any[], signal?: AbortSignal): Promise<string> {
+  private async generate(model: string, contents: any[], signal?: AbortSignal, onUsage?: (u: TokenUsage) => void): Promise<string> {
     const api = window.electronAPI
     if (!api?.llmRelay) throw new Error('Electron API not available')
 
@@ -101,6 +101,16 @@ export class GeminiService {
         }
         throw new Error(res.error || `HTTP ${res.status}`)
       }
+      // usageMetadata rides every response; thoughts count is billed
+      // output, so it is folded into `output`.
+      const u = res.json?.usageMetadata
+      if (u && onUsage) {
+        const input = typeof u.promptTokenCount === 'number' ? u.promptTokenCount : undefined
+        const output =
+          (typeof u.candidatesTokenCount === 'number' ? u.candidatesTokenCount : 0) +
+          (typeof u.thoughtsTokenCount === 'number' ? u.thoughtsTokenCount : 0)
+        onUsage({ input, output: output || undefined })
+      }
       return extractResponseText(res.json)
     } finally {
       clearTimeout(timer)
@@ -128,7 +138,7 @@ export class GeminiService {
     return (await this.listModelsResult()).models
   }
 
-  public async sendMessage(message: string, context?: string, history: Array<{role: string, content: string}> = [], signal?: AbortSignal, modelOverride?: string): Promise<string> {
+  public async sendMessage(message: string, context?: string, history: Array<{role: string, content: string}> = [], signal?: AbortSignal, modelOverride?: string, onUsage?: (u: TokenUsage) => void): Promise<string> {
     if (!this.isConfigured()) {
       throw new Error(i18nService.t('Gemini API key not configured. Please set your API key in settings.'))
     }
@@ -165,7 +175,7 @@ export class GeminiService {
 
     const model = this.resolveModelId(modelOverride)
     try {
-      return await this.generate(model, contents, signal)
+      return await this.generate(model, contents, signal, onUsage)
     } catch (error) {
       console.error('Gemini API error:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -185,7 +195,7 @@ export class GeminiService {
         console.log(`Model '${currentModel}' not available, trying fallback...`)
         configService.set('GEMINI_MODEL', this.defaultModel)
         try {
-          return await this.generate(this.defaultModel, contents, signal)
+          return await this.generate(this.defaultModel, contents, signal, onUsage)
         } catch (fallbackError) {
           // Restore original model setting
           configService.set('GEMINI_MODEL', currentModel)

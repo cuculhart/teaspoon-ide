@@ -14,7 +14,7 @@ The package and repository name is `teaspoon-ide`. The product/display name is *
 
 <video src="https://github.com/user-attachments/assets/867c8bcc-93aa-4ee4-90ef-efde5ed735e1" controls width="100%"></video>
 
-Author: Eiji Arai — Web Site: https://cuculhart.com
+Author: Cuculhart — Web Site: https://cuculhart.com
 
 ## Features
 
@@ -270,7 +270,7 @@ npm run preview
 
 ## License
 
-FSL-1.1-MIT (Functional Source License) — Copyright 2025 Eiji Arai (see [LICENSE](LICENSE))
+FSL-1.1-MIT (Functional Source License) — Copyright 2026 Cuculhart (see [LICENSE](LICENSE))
 
 - **Source-available**: Free to view, modify, fork, and use personally or internally
 - **Restriction**: No Competing Use — you may not offer the software as a competing commercial product or service (e.g. selling a renamed clone)

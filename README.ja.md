@@ -12,7 +12,7 @@
 
 パッケージ名・リポジトリ名は `teaspoon-ide`。呼称・表示名は **Teaspoon IDE** です。（旧称: **Forger**）
 
-Author: Eiji Arai — Web Site: https://cuculhart.com
+Author: Cuculhart — Web Site: https://cuculhart.com
 
 ## 主な機能
 
@@ -267,7 +267,7 @@ npm run preview
 
 ## ライセンス
 
-FSL-1.1-MIT（Functional Source License）— Copyright 2025 Eiji Arai（[LICENSE](LICENSE) を参照）
+FSL-1.1-MIT（Functional Source License）— Copyright 2026 Cuculhart（[LICENSE](LICENSE) を参照）
 
 - **ソース利用可（source-available）**: 閲覧・改変・フォーク・個人/社内利用は自由です
 - **禁止事項**: Teaspoon IDEと競合する商用製品・サービスとして利用すること（例: リネームしたクローンの販売）

@@ -33,6 +33,13 @@
   color: var(--text-tertiary);
 }
 
+.managed-gate-expired {
+  margin: -12px 0 16px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--error);
+}
+
 .managed-gate-label {
   display: block;
   font-size: 12px;

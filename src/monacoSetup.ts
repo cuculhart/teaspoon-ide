@@ -398,6 +398,38 @@ monaco.editor.defineTheme('teaspoon-coquette', {
   },
 })
 
+// Silver Screen editor theme - mid-gray #555 screen, achromatic tokens:
+// ink keywords (bold) and chalk-white functions separate by luminance
+// and weight instead of hue ([data-theme='silver'])
+monaco.editor.defineTheme('teaspoon-silver', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [
+    { token: 'keyword', foreground: '161616', fontStyle: 'bold' },
+    { token: 'string', foreground: 'd0d0d0' },
+    { token: 'number', foreground: '2a2a2a' },
+    { token: 'comment', foreground: '8a8a8a', fontStyle: 'italic' },
+    { token: 'type', foreground: 'b0b0b0' },
+    { token: 'identifier.function', foreground: 'ffffff' },
+  ],
+  colors: {
+    'editor.background': '#555555',
+    'editor.foreground': '#e6e6e6',
+    'editorLineNumber.foreground': '#9a9a9a',
+    'editorLineNumber.activeForeground': '#c8c8c8',
+    'editor.lineHighlightBackground': '#4c4c4c',
+    'editor.selectionBackground': '#636363',
+    'editor.inactiveSelectionBackground': '#4a4a4a',
+    'editorCursor.foreground': '#e6e6e6',
+    'editorWhitespace.foreground': '#6e6e6e',
+    'editorWidget.background': '#4a4a4a',
+    'editorWidget.border': '#6e6e6e',
+    'minimap.background': '#4a4a4a',
+    'diffEditor.insertedTextBackground': '#8a9a7a33',
+    'diffEditor.removedTextBackground': '#b87a6a33',
+  },
+})
+
 // Resolved app theme -> Monaco theme name. Custom themes are registered
 // above; light/dark fall back to Monaco's built-ins.
 export const MONACO_THEME: Record<string, string> = {
@@ -415,4 +447,5 @@ export const MONACO_THEME: Record<string, string> = {
   msx: 'teaspoon-msx',
   chaya: 'teaspoon-chaya',
   coquette: 'teaspoon-coquette',
+  silver: 'teaspoon-silver',
 }

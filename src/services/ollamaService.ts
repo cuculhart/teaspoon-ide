@@ -8,7 +8,7 @@ import {
   hostOsName,
   hostOpenCommand,
 } from './agentPrompt'
-import type { ModelCaps } from './providers'
+import type { ModelCaps, TokenUsage } from './providers'
 
 // Parameter count in billions parsed from the model tag ("qwen3:1.7b" -> 1.7);
 // null when the tag carries no size marker.
@@ -120,6 +120,7 @@ class OllamaService {
     signal?: AbortSignal,
     modelOverride?: string,
     agent?: boolean,
+    onUsage?: (u: TokenUsage) => void,
   ): Promise<string> {
     const model = modelOverride || this.getModel()
     const caps = this.capabilities(model)
@@ -191,6 +192,13 @@ class OllamaService {
       throw new Error(`${i18nService.t('Ollama error')} ${res.status}: ${body.slice(0, 300) || res.statusText}`)
     }
 
+    const emitUsage = (d: any) => {
+      if (!onUsage || !d) return
+      const input = typeof d.prompt_eval_count === 'number' ? d.prompt_eval_count : undefined
+      const output = typeof d.eval_count === 'number' ? d.eval_count : undefined
+      if (input !== undefined || output !== undefined) onUsage({ input, output })
+    }
+
     if (!onDelta || !res.body) {
       const data = await res.json()
       const text = data?.message?.content
@@ -198,6 +206,7 @@ class OllamaService {
         const thinking = data?.message?.thinking
         throw new OllamaEmptyResponseError(typeof thinking === 'string' && thinking.length > 0)
       }
+      emitUsage(data)
       return text
     }
 
@@ -229,7 +238,11 @@ class OllamaService {
           if (typeof obj?.message?.thinking === 'string' && obj.message.thinking) {
             sawThinking = true
           }
-          if (obj?.done) done = true
+          // The terminal chunk carries the run's token counts.
+          if (obj?.done) {
+            done = true
+            emitUsage(obj)
+          }
         } catch {
           // ignore malformed NDJSON chunk
         }

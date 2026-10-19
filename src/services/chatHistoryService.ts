@@ -18,6 +18,8 @@ export interface ChatMessageRecord {
   latencyMs?: number
   // Model that produced this response (e.g. "ollama:qwen3.5:4b")
   model?: string
+  // Token counts reported by the provider for this response
+  tokens?: { input?: number; output?: number }
   // Raw model output before command blocks became display notes (see
   // Chat.tsx). Trimmed from older messages before saving - it can
   // carry whole file bodies that are already on disk.

@@ -2,7 +2,7 @@ import { configService, ThemeMode } from './configService'
 
 export type ResolvedTheme =
   'dark' | 'light' | 'quiet' | 'ocean' | 'console' | 'walnut' | 'heritage' | 'wine'
-  | 'fizz' | 'otegami' | 'float' | 'msx' | 'chaya' | 'coquette'
+  | 'fizz' | 'otegami' | 'float' | 'msx' | 'chaya' | 'coquette' | 'silver'
 
 // Themes whose UI is light - nativeTheme and the OS-level chrome must be
 // told 'light' for these even though their ids are custom.
@@ -72,6 +72,12 @@ class ThemeService {
       root.style.setProperty('--ui-font-size', `${size}px`)
     } else {
       root.style.removeProperty('--ui-font-size')
+    }
+    const chatSize = configService.getChatFontSize()
+    if (chatSize) {
+      root.style.setProperty('--chat-font-size', `${chatSize}px`)
+    } else {
+      root.style.removeProperty('--chat-font-size')
     }
     window.dispatchEvent(new CustomEvent('font-changed'))
   }

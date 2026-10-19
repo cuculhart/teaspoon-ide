@@ -25,6 +25,8 @@ interface Message {
   latencyMs?: number
   // Model that produced this response (e.g. "ollama:qwen3.5:4b")
   model?: string
+  // Token counts reported by the provider for this response
+  tokens?: { input?: number; output?: number }
   // The model's raw output, before command blocks were replaced with
   // readable notes. Sent back as history so the model never sees the
   // "Ran: ..." note format (small models imitate it and emit fake notes).
@@ -1522,9 +1524,10 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         // cannot fix that, so it surfaces immediately. A plain empty reply
         // (context exhaustion, transient) gets a couple of retries.
         let response = ''
+        let usage: Message['tokens']
         for (let attempt = 0; ; attempt++) {
           try {
-            response = await llmService.sendMessage(currentInput, context, historyForRequest, onDelta, controller.signal, llmPin, true)
+            response = await llmService.sendMessage(currentInput, context, historyForRequest, onDelta, controller.signal, llmPin, true, (u) => { usage = u })
             break
           } catch (e) {
             if (e instanceof OllamaEmptyResponseError && !e.thinkingOnly && attempt < 2 && !controller.signal.aborted) {
@@ -1557,6 +1560,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
             timestamp: Date.now(),
             latencyMs,
             model: runLabel || undefined,
+            tokens: usage,
             rawContent: response,
           }
           setMessages((prev) => [...prev, assistantMessage])
@@ -1629,7 +1633,8 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         historyForRequest.push({ role: 'user', content: summaryInput, timestamp: Date.now() })
         const { onDelta: onSummaryDelta, getStreamed: getSummaryStreamed } = makeStreamHandler()
         const summaryStart = performance.now()
-        const summary = await llmService.sendMessage(summaryInput, context, historyForRequest, onSummaryDelta, controller.signal, llmPin, true)
+        let summaryUsage: Message['tokens']
+        const summary = await llmService.sendMessage(summaryInput, context, historyForRequest, onSummaryDelta, controller.signal, llmPin, true, (u) => { summaryUsage = u })
         const summaryLatencyMs = Math.round(performance.now() - summaryStart)
         const { display: summaryDisplay } = await parseAndExecuteFileCommands(summary, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, requestProject)
         if (controller.signal.aborted) return
@@ -1642,6 +1647,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
             timestamp: Date.now(),
             latencyMs: summaryLatencyMs,
             model: runLabel || undefined,
+            tokens: summaryUsage,
             rawContent: summary,
           }])
         }
@@ -1858,8 +1864,15 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
                   ? <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
                   : message.content}
               </div>
-              {message.latencyMs != null && (
-                <div className="message-latency">({formatLatency(message.latencyMs)})</div>
+              {(message.latencyMs != null || message.tokens) && (
+                <div className="message-latency">
+                  ({[
+                    message.latencyMs != null ? formatLatency(message.latencyMs) : null,
+                    message.tokens
+                      ? `in ${message.tokens.input?.toLocaleString() ?? '?'} / out ${message.tokens.output?.toLocaleString() ?? '?'} ${t('tokens')}`
+                      : null,
+                  ].filter(Boolean).join(' · ')})
+                </div>
               )}
             </div>
           </div>

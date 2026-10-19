@@ -20,6 +20,14 @@ export interface ModelInfo {
   version?: string
 }
 
+// Token counts reported back by a provider when its API returns them
+// (Gemini usageMetadata, Ollama prompt_eval_count/eval_count). Absent
+// fields mean the provider did not report that direction.
+export interface TokenUsage {
+  input?: number
+  output?: number
+}
+
 export interface SendArgs {
   message: string
   context?: string
@@ -31,6 +39,8 @@ export interface SendArgs {
   // history compaction). Providers may apply agent-oriented defaults
   // such as a low sampling temperature.
   agent?: boolean
+  // Called once per response when the API reports token counts.
+  onUsage?: (usage: TokenUsage) => void
 }
 
 // 'main' transport = requests go through the main-process LLM relay so the
@@ -58,7 +68,7 @@ const geminiProvider: ProviderDescriptor = {
   secretKey: 'gemini_api_key',
   isConfigured: () => geminiService.isConfigured(),
   sendMessage: (a) =>
-    geminiService.sendMessage(a.message, a.context, a.history, a.signal, a.model),
+    geminiService.sendMessage(a.message, a.context, a.history, a.signal, a.model, a.onUsage),
   listModels: () => geminiService.listModels(),
   capabilities: (m) => geminiService.capabilities(m),
   resolveModel: () => geminiService.resolveModel(),
@@ -71,7 +81,7 @@ const ollamaProvider: ProviderDescriptor = {
   transport: 'renderer',
   isConfigured: () => ollamaService.isConfigured(),
   sendMessage: (a) =>
-    ollamaService.sendMessage(a.message, a.context, a.history, a.onDelta, a.signal, a.model, a.agent),
+    ollamaService.sendMessage(a.message, a.context, a.history, a.onDelta, a.signal, a.model, a.agent, a.onUsage),
   listModels: async () => (await ollamaService.listModels()).map((id) => ({ id })),
   capabilities: (m) => ollamaService.capabilities(m),
   resolveModel: () => configService.getOllamaModel(),

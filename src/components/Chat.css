@@ -1,8 +1,12 @@
+/* Chat text scales from one custom property: sizes below are em ratios
+   of the 13px defaults, so --chat-font-size grows/shrinks the whole
+   panel proportionally. */
 .chat {
   display: flex;
   flex-direction: column;
   height: 100%;
   background: var(--bg-secondary);
+  font-size: var(--chat-font-size, 13px);
 }
 
 .chat-header {
@@ -26,7 +30,7 @@
 }
 
 .chat-header h3 {
-  font-size: 12px;
+  font-size: 0.92em;
   font-weight: 600;
   text-transform: uppercase;
   color: var(--text-secondary);
@@ -35,7 +39,7 @@
 }
 
 .model-badge {
-  font-size: 10px;
+  font-size: 0.77em;
   background: var(--accent);
   color: var(--on-accent);
   padding: 2px 6px;
@@ -48,7 +52,7 @@
 }
 
 .budget-badge {
-  font-size: 10px;
+  font-size: 0.77em;
   background: var(--bg-active);
   color: var(--text-secondary);
   padding: 2px 6px;
@@ -78,7 +82,7 @@
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: 16px;
+  font-size: 1.23em;
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
@@ -97,7 +101,7 @@
   background: none;
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 0.85em;
   cursor: pointer;
   padding: 2px 8px;
   border-radius: 4px;
@@ -114,7 +118,7 @@
   background: none;
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 0.85em;
   cursor: pointer;
   padding: 2px 8px;
   border-radius: 4px;
@@ -147,13 +151,13 @@
 }
 
 .chat-welcome h4 {
-  font-size: 18px;
+  font-size: 1.38em;
   margin-bottom: 8px;
   font-weight: 400;
 }
 
 .chat-welcome p {
-  font-size: 14px;
+  font-size: 1.08em;
 }
 
 .chat-message {
@@ -174,7 +178,6 @@
   min-width: 0;
   padding: 10px 12px;
   border-radius: 8px;
-  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -195,7 +198,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 1em;
   padding: 0 4px;
   margin-left: 6px;
   border-radius: 3px;
@@ -207,7 +210,7 @@
 }
 
 .message-role {
-  font-size: 11px;
+  font-size: 0.85em;
   font-weight: 600;
   margin-bottom: 4px;
   opacity: 0.7;
@@ -226,8 +229,14 @@
   width: 100%;
 }
 
+/* MARKDOWN_CSS pins .markdown-body at 14px for previews/exports; in
+   chat it follows the bubble font so --chat-font-size applies. */
+.chat-message .markdown-body {
+  font-size: 1em;
+}
+
 .message-latency {
-  font-size: 11px;
+  font-size: 0.85em;
   opacity: 0.55;
   margin-top: 4px;
 }
@@ -263,7 +272,7 @@
   color: var(--text-primary);
   border-radius: 4px;
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: 0.92em;
   cursor: pointer;
   transition: background 0.2s;
 }
@@ -287,7 +296,7 @@
   border-radius: 4px;
   padding: 10px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 1em;
   font-family: inherit;
   resize: none;
   outline: none;
@@ -308,7 +317,7 @@
   border: none;
   border-radius: 4px;
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: 1em;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s;
@@ -352,7 +361,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: 0.92em;
   font-weight: 600;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-color);
@@ -365,7 +374,7 @@
   border-radius: 4px;
   background: var(--bg-active);
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 1.08em;
   line-height: 1;
   cursor: pointer;
 }
@@ -381,7 +390,7 @@
 
 .chat-list-empty {
   padding: 12px;
-  font-size: 12px;
+  font-size: 0.92em;
   color: var(--text-muted);
 }
 
@@ -409,7 +418,7 @@
 }
 
 .chat-list-item-title {
-  font-size: 12.5px;
+  font-size: 0.96em;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -417,7 +426,7 @@
 }
 
 .chat-list-item-meta {
-  font-size: 11px;
+  font-size: 0.85em;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -430,7 +439,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 1em;
   padding: 2px 6px;
   cursor: pointer;
 }
@@ -443,5 +452,62 @@
 .chat-list-delete.confirm {
   background: var(--error);
   color: var(--on-accent);
-  font-size: 11px;
+  font-size: 0.85em;
+}
+
+/* ---------- Silver Screen only (scoped to data-theme='silver') ----------
+   Silent-film intertitle cards: double-line frame, serif centered text,
+   no rounded corners, and a speech-tail notch on each card's edge.
+   The chat pane itself becomes the luminous projection surface. */
+[data-theme='silver'] .chat {
+  background: radial-gradient(ellipse 82% 76% at 50% 42%,
+    #616161 0%, #585858 46%, #4b4b4b 100%);
+}
+
+[data-theme='silver'] .chat-message .message-content {
+  position: relative;
+  border-radius: 2px;
+  font-family: Georgia, 'Times New Roman', 'Yu Mincho', 'Hiragino Mincho ProN', serif;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+
+[data-theme='silver'] .chat-message.user .message-content {
+  border: 1px solid #262626;
+  box-shadow: inset 0 0 0 3px var(--bubble-user), inset 0 0 0 4px #8a8a8a;
+}
+
+[data-theme='silver'] .chat-message.assistant .message-content {
+  border: 1px solid var(--bubble-ai-border);
+  box-shadow: inset 0 0 0 3px var(--bubble-ai), inset 0 0 0 4px #5a5a5a;
+}
+
+[data-theme='silver'] .chat-message.assistant .message-content::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: -10px;
+  width: 10px;
+  height: 14px;
+  clip-path: polygon(0 50%, 100% 0, 100% 100%);
+  background: var(--bubble-ai);
+}
+
+[data-theme='silver'] .chat-message.user .message-content::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  right: -10px;
+  width: 10px;
+  height: 14px;
+  clip-path: polygon(0 0, 0 100%, 100% 50%);
+  background: var(--bubble-user);
+}
+
+/* code, lists and tables stay left-aligned inside the centered card */
+[data-theme='silver'] .chat-message .message-content pre,
+[data-theme='silver'] .chat-message .message-content table,
+[data-theme='silver'] .chat-message .message-content ul,
+[data-theme='silver'] .chat-message .message-content ol {
+  text-align: left;
 }

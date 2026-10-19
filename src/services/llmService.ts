@@ -1,5 +1,5 @@
 import { configService } from './configService'
-import { getProvider } from './providers'
+import { getProvider, type TokenUsage } from './providers'
 
 // Pins a request to the provider/model captured when the user hit Send.
 // Without it, changing Settings mid-generation would silently retarget
@@ -25,8 +25,9 @@ export const llmService = {
     signal?: AbortSignal,
     pin?: LlmPin,
     agent?: boolean,
+    onUsage?: (usage: TokenUsage) => void,
   ): Promise<string> {
     const provider = getProvider(pin?.provider ?? configService.getLlmProvider())
-    return provider.sendMessage({ message, context, history, onDelta, signal, model: pin?.model, agent })
+    return provider.sendMessage({ message, context, history, onDelta, signal, model: pin?.model, agent, onUsage })
   },
 }

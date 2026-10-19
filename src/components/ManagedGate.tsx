@@ -8,7 +8,10 @@ import './ManagedGate.css'
 // valid organization session exists. Rendered INSTEAD of the app shell
 // (not as an overlay), so nothing underneath can receive input.
 const ManagedGate: React.FC = () => {
-  const [username, setUsername] = useState('')
+  // A stored user name survives expiry, so it can prefill the form and
+  // tell "session expired" apart from "never signed in".
+  const expired = configService.hasExpiredManagedSession()
+  const [username, setUsername] = useState(configService.getManagedUser() || '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -36,6 +39,11 @@ const ManagedGate: React.FC = () => {
       <div className="managed-gate-card">
         <h1 className="managed-gate-title">Teaspoon IDE</h1>
         <p className="managed-gate-subtitle">{t('Sign in to your organization')}</p>
+        {expired && (
+          <p className="managed-gate-expired">
+            {t('Your session has expired. Please sign in again.')}
+          </p>
+        )}
 
         <form onSubmit={handleSubmit}>
           <label className="managed-gate-label" htmlFor="managed-server">

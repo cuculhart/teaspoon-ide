@@ -8,6 +8,19 @@
   flex-shrink: 0;
 }
 
+/* Silver Screen only: 35mm film sprocket-hole strip above the terminal */
+[data-theme='silver'] .terminal-panel::before {
+  content: '';
+  flex-shrink: 0;
+  height: 12px;
+  background-color: #222;
+  background-image: radial-gradient(circle at center, #0d0d0d 2.5px, transparent 3px);
+  background-size: 17px 7px;
+  background-position: center;
+  background-repeat: repeat-x;
+  border-bottom: 1px solid var(--border-color);
+}
+
 .terminal-header {
   display: flex;
   align-items: center;
