@@ -24,6 +24,15 @@ export interface ChatMessageRecord {
   // Chat.tsx). Trimmed from older messages before saving - it can
   // carry whole file bodies that are already on disk.
   rawContent?: string
+  // Agent-loop step: executed file/shell actions in execution order
+  // (AgentAction in types/agent.ts). Drives the collapsible step card.
+  actions?: {
+    kind: 'read' | 'list' | 'grep' | 'find' | 'write' | 'edit' | 'run' | 'close' | 'notice'
+    label: string
+    target: string
+    status: 'ok' | 'failed' | 'rejected'
+    detail?: string
+  }[]
 }
 
 export interface Conversation {

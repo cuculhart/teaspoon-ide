@@ -35,15 +35,26 @@ const THINK_LEVELS_RE = /gpt-oss|qwen3(?!\.5)|gemma4/i
 // "off" is the lowest level.
 const THINK_ALWAYS_ON_RE = /gpt-oss|gemma4/i
 
+// Models that route tool intent to a channel Ollama reports as
+// `thinking` instead of `content` (gpt-oss uses harmony "commentary"
+// routing). For them an empty content after a thinking trace is
+// structural and retrying cannot help. For other thinking models the
+// same shape is just a transient empty reply - gemma4 attaches a
+// thinking trace to EVERY response, so thinking proves nothing there -
+// and it must stay retryable like a plain empty reply.
+const CHANNEL_ROUTED_RE = /gpt-oss/i
+
 // Sampling temperature used for agent-loop calls when the user has not
 // set one. The measured failure modes of unset temperature (model
 // default ~1.0) were language drift and hallucinated details.
 export const AGENT_DEFAULT_TEMPERATURE = 0.2
 
 // Thrown when /api/chat returns no reply text. `thinkingOnly` marks the
-// case where the model emitted reasoning but no content (gpt-oss routes
-// tool intent to a non-content channel the text protocol cannot read) -
-// retrying cannot fix that, so the agent loop must not retry it.
+// channel-routed case: a gpt-oss-class model emitted reasoning but no
+// content because it routes tool intent to a channel the text protocol
+// cannot read - retrying cannot fix that, so the agent loop must not
+// retry it. Other thinking models never set this flag; their
+// reasoning-plus-empty replies are treated as transient empties.
 export class OllamaEmptyResponseError extends Error {
   readonly thinkingOnly: boolean
   constructor(thinkingOnly: boolean) {
@@ -204,7 +215,9 @@ class OllamaService {
       const text = data?.message?.content
       if (typeof text !== 'string' || !text) {
         const thinking = data?.message?.thinking
-        throw new OllamaEmptyResponseError(typeof thinking === 'string' && thinking.length > 0)
+        throw new OllamaEmptyResponseError(
+          typeof thinking === 'string' && thinking.length > 0 && CHANNEL_ROUTED_RE.test(model),
+        )
       }
       emitUsage(data)
       return text
@@ -249,7 +262,7 @@ class OllamaService {
       }
     }
     if (!full) {
-      throw new OllamaEmptyResponseError(sawThinking)
+      throw new OllamaEmptyResponseError(sawThinking && CHANNEL_ROUTED_RE.test(model))
     }
     return full
   }

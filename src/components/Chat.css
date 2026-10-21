@@ -511,3 +511,97 @@
 [data-theme='silver'] .chat-message .message-content ol {
   text-align: left;
 }
+
+/* ---------- Agent run step card (T12) ----------
+   One collapsible card per user request, built from the executed
+   actions of each agent-loop step. Uses the shared theme variables so
+   every palette gets a readable card without per-theme overrides. */
+.agent-run {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  font-size: calc(var(--chat-font-size, 13px) * 0.92);
+  color: var(--text-secondary);
+}
+
+.agent-run > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.agent-run > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-run-title {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.agent-run > summary::after {
+  content: '▾';
+  color: var(--text-muted);
+}
+
+.agent-run:not([open]) > summary::after {
+  content: '▸';
+}
+
+.agent-run-meta {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.agent-run-step {
+  padding: 4px 10px 6px;
+  border-top: 1px solid var(--border-color);
+}
+
+.agent-run-step-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.agent-action {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 1px 0;
+}
+
+.agent-action-icon {
+  flex: none;
+}
+
+.agent-action-target {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.agent-action-detail {
+  color: var(--text-muted);
+}
+
+.agent-action.failed,
+.agent-action.failed .agent-action-target,
+.agent-action.failed .agent-action-detail {
+  color: var(--error);
+}
+
+.agent-action.rejected {
+  opacity: 0.65;
+}
+
+.agent-run-prose {
+  margin-top: 4px;
+  color: var(--text-secondary);
+}

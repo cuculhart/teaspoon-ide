@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-21
+
+### Added
+
+- Agent runs now render as a collapsible step card instead of scattered
+  note lines. Every action the model caused - file reads, searches,
+  writes, edits, shell commands, rejections - shows as a row with its
+  outcome (exit code, match count, error), grouped per agent-loop step
+  with that step's latency and token counts, plus the model's
+  in-between narration. Step data is persisted with the conversation;
+  chats from older versions keep the legacy inline notes.
+
+### Fixed
+
+- On Ollama, an empty reply accompanied by a thinking trace was always
+  reported as a channel-routed (gpt-oss-style) incompatibility and never
+  retried. Always-thinking models like gemma4 attach a thinking trace to
+  every response, so a transient empty reply there - context exhaustion,
+  a degenerate turn - surfaced the "model not supported" error instead
+  of being retried. The incompatibility verdict is now limited to
+  channel-routed models (gpt-oss); other models get the normal
+  empty-reply retry. The closing-summary turn now shares the same retry
+  as the agent loop instead of failing on the first empty reply.
+
 ## [1.6.0] - 2026-10-19
 
 ### Added
