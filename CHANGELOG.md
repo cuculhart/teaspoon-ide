@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-22
+
+### Security
+
+- Electron 44.7.0 → 44.9.3. Picks up upstream ANGLE, Chromium,
+  PDFium, Skia and V8 backports plus a bundled Node.js bump to
+  v24.22.0. The October 21 Node.js security release (v24.22.1)
+  has not landed in any Electron release yet; the remaining CVEs
+  will arrive with the next Electron patch.
+- Resolved `npm audit` findings alongside routine dependency
+  updates: react / react-dom 19.3.1, vite 8.3.5, dotenv 18.0.8,
+  playwright-core 1.64.1.
+
 ## [1.7.0] - 2026-10-21
 
 ### Added
