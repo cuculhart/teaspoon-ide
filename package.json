@@ -43,7 +43,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",
-    "electron": "^44.10.0",
+    "electron": "^45.0.0",
     "monaco-editor": "^0.57.0",
     "playwright-core": "^1.64.0",
     "typescript": "^7.0.2",
