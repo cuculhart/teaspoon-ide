@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-10-30
+
+### Security
+
+- Electron 44.9.3 → 44.10.0. The bundled Node.js moves from 24.22.0
+  to 24.22.1, picking up the October 21 Node.js security release
+  (dns.resolve* NUL-byte truncation, TLS hostname-verification
+  bypasses, a Brotli decoder overflow, and related fixes) that had
+  not yet landed in Electron at the time of 1.7.1. None of the
+  disclosed issues are expected to be reachable through Teaspoon
+  IDE's usage, but this release ships the upstream fix anyway.
+
 ## [1.7.1] - 2026-10-22
 
 ### Security
