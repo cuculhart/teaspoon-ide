@@ -7,6 +7,136 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-21
+
+### Added
+
+- **Gemini streaming**: replies now render token-by-token via
+  `streamGenerateContent` SSE. The main-process relay parses `data:`
+  events and forwards them to the renderer on a new `llm-relay-chunk`
+  channel, keeping the API key out of the renderer. Streams get an idle
+  timeout (45 s, reset per chunk) instead of the fixed 120 s cap, abort
+  works mid-stream, and a proxy/model that cannot stream transparently
+  falls back to a plain `generateContent` reply.
+- **Gemini generation controls in Settings**: a Temperature field
+  (empty = 0.7 for chat, 0.2 automatically inside agent loops - same
+  measured rationale as the Ollama default) and a Thinking selector
+  (Model default / Off / Low / High). Thinking maps onto
+  `thinkingConfig` per model family - `thinkingLevel` on Gemini 3.x,
+  `thinkingBudget` on the 2.5 line - and is omitted on models that do
+  not support it.
+- **Cached-token display**: when `usageMetadata` reports an implicit
+  context-cache hit, the token readout shows `cached N` alongside
+  in/out counts.
+
+### Changed
+
+- Gemini requests now carry the app/agent instructions in
+  `systemInstruction` instead of appended to the user turn, and
+  `maxOutputTokens` follows each model's API-reported
+  `outputTokenLimit` (fallback 32,768; capped at 65,536) instead of a
+  fixed 8,192 - long WRITE_FILE blocks are far less likely to truncate.
+- Rate-limit and overload responses (HTTP 429/503) now wait out the
+  server's `RetryInfo.retryDelay`/`Retry-After` (capped at 30 s) and
+  retry up to twice, with a "Rate limited - retrying…" status in the
+  loading line; waits honor Cancel. Proxies that reject the new
+  `systemInstruction`/`thinkingConfig` fields get one retry without
+  them.
+
+- The send button now becomes a Stop button while a reply or agent run
+  is in progress (the only previous stop control, a small ✕ next to
+  "Generating response", was easy to miss mid-run and drifted sideways
+  as the "..." animation changed width). Pressing it aborts the request
+  and rejects any open approval dialogs, as before; the drifting
+  inline ✕ is removed.
+- Agent run cards now stay expanded only while the run is in progress:
+  the live card grows visibly step by step, then folds itself once the
+  run finishes (or a chat is reloaded - older runs start folded). A
+  manual click still expands/collapses any card at any time, including
+  mid-run.
+- The explorer file tree now sorts folders before files (previously raw
+  filesystem order mixed them), matching VS Code's default view -
+  directories first, each group in case-insensitive natural order.
+- Agent run cards now appear as soon as the model reply arrives and
+  grow live while the step executes, instead of only showing up after
+  every read, approval, write and command of the step finished. Shell
+  commands list a pending "Running" action that flips to its final
+  ok/failed/rejected state when the command ends, so a long test or
+  build no longer leaves the chat looking idle. History writes are
+  debounced during the run so the live updates do not thrash the
+  conversation file.
+
+### Fixed
+
+- The file-edit and command approval dialogs gained a "■ Stop" button
+  that aborts the whole run. Their fullscreen overlay swallowed clicks
+  on the chat's Stop button, so the intended "cancel rejects open
+  approvals" path existed in code but was unreachable while a dialog
+  was open.
+- Live Agent run updates now apply past the first action. The step
+  patcher matched its message by object identity, but the first patch
+  replaced that object with a copy - every later update (further
+  actions, the final display text with command notes) silently missed.
+  A step that wrote several files showed only the first action row and
+  kept the raw `// WRITE_FILE:` text instead of the readable notes.
+- Streaming no longer turns off after the model list is fetched. The
+  live API omits `streamGenerateContent` from
+  `supportedGenerationMethods` on every current model, so once the list
+  populated the capability cache all models were judged non-streaming
+  and requests silently fell back to plain `generateContent`. Any model
+  that supports `generateContent` is now treated as stream-capable -
+  an actual stream failure still falls back once.
+- Quoted command syntax inside prose no longer executes. A summary or
+  changelog excerpt mentioning `` `// RUN_COMMAND: start` `` opened a
+  real command-approval dialog because `//`-family command markers were
+  matched anywhere in the text. Markers must now sit at the start of a
+  line (or directly after a preceding command), inline-code spans are
+  masked like fenced blocks, and JSON command blobs keep their existing
+  placement freedom.
+- The "code shown but not written" retry no longer fires on how-to
+  questions. Asking "how is the portable exe created" matched the
+  creation-intent regex (作成/create/...) and a correctly fenced
+  `npm run package` example was flagged as a missed file write - the
+  agent loop then burned whole turns re-asking for an answer the model
+  was already giving. Questions phrased as method/documentation lookups
+  no longer count as creation intent, and the nudge now fires at most
+  once per agent run: a model that still shows a fenced snippet after
+  being told is displaying it on purpose. The closing-summary turn no
+  longer emits the nudge either (its continuation would never run).
+- Failed turns no longer leak into model-bound history. A request that
+  errored saved its "Error: ..." bubble as an assistant message, which
+  was then re-sent to the API as a `model` role turn - polluting every
+  later request with error text the AI never said (and occasionally
+  feeding it stale Ollama/credential failures). Error bubbles, the
+  rollback notice, and the unresolved-edit warning are now flagged as
+  UI-only and filtered out before history is windowed, retried, or
+  folded into the rolling summary; legacy chats get the same treatment
+  via a content heuristic so already-polluted histories clean
+  themselves up on the next send.
+- Managed sessions no longer get stuck "signed in but not signed in."
+  The Settings gate keyed on the saved user name while the lock check
+  used the session key, so a leftover session key with no user name
+  both suppressed the sign-in gate and hid the Sign Out button. Sign
+  Out now appears whenever a session key exists, and the status shows
+  "Signed in" when the user name is absent.
+- Re-emitted EDIT_FILE diffs no longer false-alarm. Models sometimes
+  repeat a SEARCH/REPLACE block whose result is already on disk (e.g.
+  re-sending `speed: 4 -> 3` after it applied); the missing SEARCH text
+  failed the edit, marked the run's edit state unresolved, and ended in
+  a "the file may be unmodified" warning even though the requested
+  change was in place. A SEARCH miss whose replacement appears exactly
+  once is now reported as "already applied" - no write, no failure, the
+  unresolved-edit flag clears.
+- Truncated command names no longer pass silently as prose. A reply
+  cut off mid-keyword ("// READ" for "// READ_FILE:", or the merged
+  "READFILE") matched no command and was ignored by the invented-command
+  scan (which requires "_" or "."), so the run ended while the model
+  was still waiting for a command result. Lines whose name is a prefix
+  or merged-underscore variant of a real command are now flagged like
+  other invented commands - but only when the rest of the line is empty
+  or a single token, so prose comments such as "// WRITE your code
+  here" stay text.
+
 ## [1.7.2] - 2026-10-30
 
 ### Security

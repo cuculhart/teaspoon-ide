@@ -13,8 +13,10 @@ export interface AgentAction {
   // notices and project-level actions.
   target: string
   // 'rejected' is reserved for user-declined approvals; policy/path
-  // rejections count as 'failed'.
-  status: 'ok' | 'failed' | 'rejected'
+  // rejections count as 'failed'. 'pending' marks an action still
+  // executing (live-run view only - a leftover pending row just renders
+  // muted, e.g. after an abort).
+  status: 'ok' | 'failed' | 'rejected' | 'pending'
   // Short status suffix ("exit code 1", "unchanged", an error string)
   detail?: string
 }

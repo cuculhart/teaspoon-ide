@@ -2,17 +2,41 @@ import { configService } from './configService'
 import { i18nService } from './i18nService'
 import { APP_CONTEXT_PROMPT, AGENT_INSTRUCTIONS, NO_PROJECT_INSTRUCTIONS, hostOsName, hostOpenCommand } from './agentPrompt'
 import { projectService } from './projectService'
-import { extractResponseText, generateContentPath } from './geminiRest'
+import { extractResponseText, extractStreamDelta, extractUsage, generateContentPath, parseRetryDelaySeconds, streamGenerateContentPath } from './geminiRest'
 import type { ModelCaps, ModelInfo, TokenUsage } from './providers'
+
+// Sampling temperature used for agent-loop calls when the user has not
+// set one - same rationale as Ollama's AGENT_DEFAULT_TEMPERATURE: model
+// defaults (~1.0) cause drift and hallucinated details in tool loops.
+const AGENT_DEFAULT_TEMPERATURE = 0.2
+// Cap on the 429/503 wait. A server asking for more is treated like a
+// hard quota error instead of stalling the turn.
+const MAX_RETRY_WAIT_MS = 30000
+const MAX_RATE_LIMIT_RETRIES = 2
+// Streaming requests die when no chunk arrives for this long - the fixed
+// timeout would cut legitimate long generations.
+const STREAM_IDLE_TIMEOUT_MS = 45000
+
+// Raised by relayOnce on a 429/503 so generate() can apply the backoff
+// policy without scraping the error message for the status code.
+class RateLimitedError extends Error {
+  readonly seconds: number | null
+  constructor(seconds: number | null, message: string) {
+    super(message)
+    this.name = 'RateLimitedError'
+    this.seconds = seconds
+  }
+}
 
 // Gemini via the main-process LLM relay: the renderer builds the request
 // path and body, the main process attaches the stored credential and does
 // the fetch. The API key is never present in the renderer.
 export class GeminiService {
   private defaultModel = 'gemini-3.8-flash' // Latest stable model
-  private maxTokens = 8192 // Token limit to prevent excessive usage
   private timeout = 120000 // 2 minutes timeout
   private requestSeq = 0
+  // Last model list seen - feeds capabilities() and maxOutputTokens.
+  private modelCache = new Map<string, ModelInfo>()
 
   private resolveModelId(override?: string): string {
     if (override) return override
@@ -43,8 +67,45 @@ export class GeminiService {
       : model || this.defaultModel
   }
 
-  public capabilities(_model: string): ModelCaps {
-    return { streaming: false, promptVariant: 'full' }
+  public capabilities(model: string): ModelCaps {
+    const info = this.modelCache.get(model)
+    return {
+      // Until the model list is fetched, assume streaming works - nearly
+      // every Gemini model supports streamGenerateContent, and a failed
+      // stream falls back to generateContent once anyway. Note the live
+      // API often omits 'streamGenerateContent' from
+      // supportedGenerationMethods even though the endpoint works, so
+      // 'generateContent' support is treated as stream-capable too.
+      streaming: info?.generationMethods
+        ? info.generationMethods.some(
+            (m) => m === 'streamGenerateContent' || m === 'generateContent'
+          )
+        : true,
+      thinking: this.thinkingKind(model) ? 'optional' : 'unsupported',
+      promptVariant: 'full',
+    }
+  }
+
+  // thinkingConfig accepts a level ('low'/'high') on Gemini 3 models but
+  // a token budget on the 2.5 family - sending the wrong field errors.
+  private thinkingKind(model: string): 'level' | 'budget' | null {
+    if (/gemini-3/i.test(model)) return 'level'
+    if (/gemini-2\.5/i.test(model)) return 'budget'
+    return null
+  }
+
+  private thinkingConfigFor(model: string): Record<string, unknown> | undefined {
+    const setting = configService.getGeminiThinking()
+    if (!setting) return undefined
+    const kind = this.thinkingKind(model)
+    if (!kind) return undefined
+    if (kind === 'level') {
+      // Level models cannot fully disable thinking - 'off' maps to low.
+      return { thinkingLevel: setting === 'high' ? 'high' : 'low' }
+    }
+    if (setting === 'off') return { thinkingBudget: 0 }
+    if (setting === 'high') return { thinkingBudget: -1 } // dynamic
+    return { thinkingBudget: 1024 }
   }
 
   // Translate LiteLLM/proxy errors into user-facing text under an
@@ -69,52 +130,176 @@ export class GeminiService {
     return null
   }
 
-  // One generateContent call through the relay. Timeout and user cancel
-  // both abort the in-flight HTTP request in the main process.
-  private async generate(model: string, contents: any[], signal?: AbortSignal, onUsage?: (u: TokenUsage) => void): Promise<string> {
+  // maxOutputTokens from the API-reported output limit; unset models get
+  // the old conservative ceiling's successor - 32768 - capped at 65536 so
+  // a huge limit cannot produce an unbounded reply bill.
+  private maxOutputTokensFor(model: string): number {
+    return Math.min(this.modelCache.get(model)?.outputTokenLimit ?? 32768, 65536)
+  }
+
+  private generationConfigFor(model: string, agent?: boolean): Record<string, unknown> {
+    const temperature = configService.getGeminiTemperature() ?? (agent ? AGENT_DEFAULT_TEMPERATURE : 0.7)
+    const thinking = this.thinkingConfigFor(model)
+    return {
+      maxOutputTokens: this.maxOutputTokensFor(model),
+      temperature,
+      ...(thinking ? { thinkingConfig: thinking } : {}),
+    }
+  }
+
+  // sleep that resolves early when the abort signal fires
+  private abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(t)
+        signal?.removeEventListener('abort', done)
+        resolve()
+      }
+      const t = setTimeout(done, ms)
+      signal?.addEventListener('abort', done, { once: true })
+    })
+  }
+
+  // One generateContent/streamGenerateContent call through the relay.
+  // Timeout and user cancel both abort the in-flight HTTP request in the
+  // main process; stream chunks reset the renderer's idle timer.
+  private async relayOnce(
+    model: string,
+    body: Record<string, unknown>,
+    useStream: boolean,
+    signal: AbortSignal | undefined,
+    onDelta: ((delta: string) => void) | undefined,
+  ): Promise<{ text: string; usage?: TokenUsage }> {
     const api = window.electronAPI
     if (!api?.llmRelay) throw new Error('Electron API not available')
 
     const requestId = `gemini-${Date.now()}-${++this.requestSeq}`
     const credential = configService.hasManagedSession() ? 'managed' : 'personal'
     let timedOut = false
+    let full = ''
+    let usage: TokenUsage | undefined
     const abort = () => api.llmRelayAbort(requestId)
-    const timer = setTimeout(() => {
+    const armTimer = (ms: number) => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        timedOut = true
+        abort()
+      }, ms)
+    }
+    let timer = setTimeout(() => {
       timedOut = true
       abort()
     }, this.timeout)
     signal?.addEventListener('abort', abort)
+    const offChunk = useStream && api.onLlmRelayChunk
+      ? api.onLlmRelayChunk(requestId, (chunk) => {
+          armTimer(STREAM_IDLE_TIMEOUT_MS)
+          const delta = extractStreamDelta(chunk)
+          if (delta) {
+            full += delta
+            onDelta?.(delta)
+          }
+          const u = extractUsage(chunk)
+          if (u) usage = u
+        })
+      : undefined
     try {
       const res = await api.llmRelay({
         credential,
         requestId,
         method: 'POST',
-        path: generateContentPath(model),
-        body: {
-          contents,
-          generationConfig: { maxOutputTokens: this.maxTokens, temperature: 0.7 },
-        },
+        path: useStream ? streamGenerateContentPath(model) : generateContentPath(model),
+        body,
+        stream: useStream,
       })
       if (!res.ok) {
         if (res.aborted) {
           throw new Error(timedOut ? `Request timeout after ${this.timeout}ms` : 'aborted')
         }
-        throw new Error(res.error || `HTTP ${res.status}`)
+        // Retryable upstream pressure: honor RetryInfo / Retry-After,
+        // capped, at most MAX_RATE_LIMIT_RETRIES times.
+        const retryable = res.status === 429 || res.status === 503
+        if (retryable) {
+          const waitSec = parseRetryDelaySeconds(res.details, res.retryAfter)
+          throw new RateLimitedError(waitSec, res.error || `HTTP ${res.status}`)
+        }
+        const err = new Error(res.error || `HTTP ${res.status}`) as Error & { status?: number }
+        err.status = res.status
+        throw err
       }
-      // usageMetadata rides every response; thoughts count is billed
-      // output, so it is folded into `output`.
-      const u = res.json?.usageMetadata
-      if (u && onUsage) {
-        const input = typeof u.promptTokenCount === 'number' ? u.promptTokenCount : undefined
-        const output =
-          (typeof u.candidatesTokenCount === 'number' ? u.candidatesTokenCount : 0) +
-          (typeof u.thoughtsTokenCount === 'number' ? u.thoughtsTokenCount : 0)
-        onUsage({ input, output: output || undefined })
+      if (res.streamed) {
+        if (!full) throw new Error('Empty response from Gemini')
+        return { text: full, usage }
       }
-      return extractResponseText(res.json)
+      // A proxy that ignores `stream` answered with plain JSON - the
+      // transparent non-streaming fallback path.
+      const u = extractUsage(res.json)
+      if (u) usage = u
+      return { text: extractResponseText(res.json), usage }
     } finally {
       clearTimeout(timer)
       signal?.removeEventListener('abort', abort)
+      offChunk?.()
+    }
+  }
+
+  // One generateContent call through the relay, with the 429/503 backoff
+  // loop and a one-shot streaming -> non-streaming fallback wrapped
+  // around it.
+  private async generate(
+    model: string,
+    contents: any[],
+    systemInstruction: string,
+    signal?: AbortSignal,
+    onUsage?: (u: TokenUsage) => void,
+    onDelta?: (delta: string) => void,
+    agent?: boolean,
+    onStatus?: (status: string) => void,
+  ): Promise<string> {
+    const makeBody = (extras: boolean): Record<string, unknown> => ({
+      contents,
+      generationConfig: this.generationConfigFor(model, agent),
+      ...(extras && systemInstruction
+        ? { systemInstruction: { parts: [{ text: systemInstruction }] } }
+        : {}),
+    })
+    let streamAllowed = !!onDelta && this.capabilities(model).streaming
+    let extras = true
+    let rateRetries = 0
+
+    for (;;) {
+      try {
+        const { text, usage } = await this.relayOnce(model, makeBody(extras), streamAllowed, signal, onDelta)
+        if (usage && onUsage) onUsage(usage)
+        return text
+      } catch (e) {
+        if (e instanceof RateLimitedError) {
+          if (signal?.aborted) throw new Error('aborted')
+          const waitMs = Math.min((e.seconds ?? 5) * 1000, MAX_RETRY_WAIT_MS)
+          if (rateRetries >= MAX_RATE_LIMIT_RETRIES || waitMs >= MAX_RETRY_WAIT_MS) {
+            throw new Error(`${e.message} - ${i18nService.t('the model is rate limited or overloaded; wait a moment and try again')}`)
+          }
+          rateRetries++
+          onStatus?.(i18nService.t('Rate limited - retrying…'))
+          await this.abortableSleep(waitMs, signal)
+          if (signal?.aborted) throw new Error('aborted')
+          continue
+        }
+        if (signal?.aborted || (e instanceof Error && e.message === 'aborted')) throw e
+        // A proxy that does not implement streamGenerateContent answers
+        // with an ordinary HTTP error - retry once without `stream`.
+        if (streamAllowed) {
+          streamAllowed = false
+          continue
+        }
+        // LiteLLM-class proxies may reject fields the upstream would
+        // accept - drop the Gemini-only extras once and retry.
+        if (extras && e instanceof Error && /systemInstruction|thinkingConfig/i.test(e.message)) {
+          extras = false
+          continue
+        }
+        throw e
+      }
     }
   }
 
@@ -131,34 +316,46 @@ export class GeminiService {
     if (!api?.llmListModels || !this.isConfigured()) return { ok: false, models: [] }
     const credential = configService.hasManagedSession() ? 'managed' : 'personal'
     const res = await api.llmListModels({ credential })
-    return { ok: !!res.ok, status: res.status, models: Array.isArray(res.models) ? res.models : [] }
+    const models = Array.isArray(res.models) ? res.models : []
+    if (res.ok && models.length) {
+      this.modelCache = new Map(models.map((m) => [m.id, m]))
+    }
+    return { ok: !!res.ok, status: res.status, models }
   }
 
   public async listModels(): Promise<ModelInfo[]> {
     return (await this.listModelsResult()).models
   }
 
-  public async sendMessage(message: string, context?: string, history: Array<{role: string, content: string}> = [], signal?: AbortSignal, modelOverride?: string, onUsage?: (u: TokenUsage) => void): Promise<string> {
+  public async sendMessage(
+    message: string,
+    context?: string,
+    history: Array<{role: string, content: string}> = [],
+    signal?: AbortSignal,
+    modelOverride?: string,
+    onUsage?: (u: TokenUsage) => void,
+    onDelta?: (delta: string) => void,
+    agent?: boolean,
+    onStatus?: (status: string) => void,
+  ): Promise<string> {
     if (!this.isConfigured()) {
       throw new Error(i18nService.t('Gemini API key not configured. Please set your API key in settings.'))
     }
 
-    let prompt = message
-    if (context) {
-      prompt = `Context:\n${context}\n\nUser message:\n${message}`
-    }
-
-    // Host-app identity so the model answers for THIS editor, not VS Code
-    prompt += APP_CONTEXT_PROMPT
+    // Instructions live in systemInstruction so they no longer ride the
+    // user turn - the API treats them as higher-priority context, and the
+    // user role stays clean for logging/caching.
     const projectOpen = !!projectService.getCurrentProject()?.isOpen
-    prompt += `\nThe app runs on ${hostOsName()}.`
-    prompt += projectOpen
-      ? ` To open a file/URL in the browser, emit "// RUN_COMMAND: ${hostOpenCommand()} <target>".\n`
-      : '\n'
+    const systemInstruction =
+      // Host-app identity so the model answers for THIS editor, not VS Code
+      APP_CONTEXT_PROMPT +
+      `\nThe app runs on ${hostOsName()}.` +
+      (projectOpen
+        ? ` To open a file/URL in the browser, emit "// RUN_COMMAND: ${hostOpenCommand()} <target>".\n`
+        : '\n') +
+      (projectOpen ? AGENT_INSTRUCTIONS : NO_PROJECT_INSTRUCTIONS)
 
-    // Add instruction for file operations using simple commands - or warn
-    // that they are unavailable when no project is open
-    prompt += projectOpen ? AGENT_INSTRUCTIONS : NO_PROJECT_INSTRUCTIONS
+    const prompt = context ? `Context:\n${context}\n\nUser message:\n${message}` : message
 
     // Build conversation history for Gemini
     const contents = []
@@ -175,7 +372,7 @@ export class GeminiService {
 
     const model = this.resolveModelId(modelOverride)
     try {
-      return await this.generate(model, contents, signal, onUsage)
+      return await this.generate(model, contents, systemInstruction, signal, onUsage, onDelta, agent, onStatus)
     } catch (error) {
       console.error('Gemini API error:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -195,7 +392,7 @@ export class GeminiService {
         console.log(`Model '${currentModel}' not available, trying fallback...`)
         configService.set('GEMINI_MODEL', this.defaultModel)
         try {
-          return await this.generate(this.defaultModel, contents, signal, onUsage)
+          return await this.generate(this.defaultModel, contents, systemInstruction, signal, onUsage, onDelta, agent, onStatus)
         } catch (fallbackError) {
           // Restore original model setting
           configService.set('GEMINI_MODEL', currentModel)

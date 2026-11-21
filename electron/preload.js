@@ -14,6 +14,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // the fetch; the key never enters the renderer.
   llmRelay: (req) => ipcRenderer.invoke('llm-relay', req),
   llmRelayAbort: (requestId) => ipcRenderer.send('llm-relay-abort', requestId),
+  // SSE chunks for a streaming relay request, filtered by requestId.
+  // Returns an unsubscribe function.
+  onLlmRelayChunk: (requestId, callback) => {
+    const listener = (event, payload) => {
+      if (payload && payload.requestId === requestId) callback(payload.chunk)
+    }
+    ipcRenderer.on('llm-relay-chunk', listener)
+    return () => ipcRenderer.removeListener('llm-relay-chunk', listener)
+  },
   llmListModels: (req) => ipcRenderer.invoke('llm-list-models', req),
   managedUsage: () => ipcRenderer.invoke('managed-usage'),
 

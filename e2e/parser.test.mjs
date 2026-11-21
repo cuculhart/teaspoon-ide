@@ -84,6 +84,26 @@ const args = (r) => r.commands.map(c => c.arg)
   const r = findFileCommands('// RUN_COMMAND: start https://[www.apple.com/jp/x](https://www.apple.com/jp/x)')
   check('markdown link url', r.commands.length === 1 && r.commands[0].arg === 'start https://www.apple.com/jp/x', JSON.stringify(args(r)))
 }
+// --- observed failure: command quoted inside inline code must stay inert ---
+{
+  const r = findFileCommands('ブラウザで開く `// RUN_COMMAND: start` 等）、小規模なモデル向けの改善を進めました。')
+  check('inline-code run inert', r.commands.length === 0, JSON.stringify(args(r)))
+}
+// --- "//" marker mid-sentence (no backticks) is prose, not a command ---
+{
+  const r = findFileCommands('実行例は // RUN_COMMAND: npm test のように記述します。')
+  check('mid-sentence run inert', r.commands.length === 0, JSON.stringify(args(r)))
+}
+// --- line-start "//" command still executes ---
+{
+  const r = findFileCommands('テストを実行します。\n// RUN_COMMAND: npm test')
+  check('line-start run executes', r.commands.length === 1 && r.commands[0].type === 'run', JSON.stringify(args(r)))
+}
+// --- mid-line "//" write opener is prose, body commands stay inert too ---
+{
+  const r = findFileCommands('記法は // WRITE_FILE: a.md\ntext\n// END_WRITE_FILE の形です。')
+  check('mid-sentence write inert', r.commands.length === 0, JSON.stringify(args(r)))
+}
 // --- normal write still works ---
 {
   const r = findFileCommands('// WRITE_FILE: ok.md\nhello world\n// END_WRITE_FILE')

@@ -26,8 +26,9 @@ export const llmService = {
     pin?: LlmPin,
     agent?: boolean,
     onUsage?: (usage: TokenUsage) => void,
+    onStatus?: (status: string) => void,
   ): Promise<string> {
     const provider = getProvider(pin?.provider ?? configService.getLlmProvider())
-    return provider.sendMessage({ message, context, history, onDelta, signal, model: pin?.model, agent, onUsage })
+    return provider.sendMessage({ message, context, history, onDelta, signal, model: pin?.model, agent, onUsage, onStatus })
   },
 }

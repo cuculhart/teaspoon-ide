@@ -108,6 +108,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
   const [ollamaNumCtx, setOllamaNumCtx] = useState('')
   const [ollamaTemperature, setOllamaTemperature] = useState('')
   const [ollamaThink, setOllamaThink] = useState<'default' | 'on' | 'off' | 'low' | 'medium' | 'high'>('default')
+  const [geminiTemperature, setGeminiTemperature] = useState('')
+  const [geminiThinking, setGeminiThinking] = useState<'default' | 'off' | 'low' | 'high'>('default')
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [ollamaReachable, setOllamaReachable] = useState<boolean | null>(null)
   const [languages, setLanguages] = useState<Array<{ code: string; label: string }>>([
@@ -184,6 +186,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
             : think === false ? 'off'
             : think
         )
+        const gTemp = configService.getGeminiTemperature()
+        setGeminiTemperature(gTemp !== undefined ? String(gTemp) : '')
+        setGeminiThinking(configService.getGeminiThinking() ?? 'default')
         if (p === 'ollama') {
           refreshOllamaModels()
         }
@@ -435,6 +440,17 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
         : value === 'off' ? false
         : value
     )
+  }
+
+  const handleGeminiTemperatureChange = (value: string) => {
+    setGeminiTemperature(value)
+    const n = parseFloat(value)
+    configService.setGeminiTemperature(Number.isFinite(n) && n >= 0 && n <= 2 ? n : undefined)
+  }
+
+  const handleGeminiThinkingChange = (value: 'default' | 'off' | 'low' | 'high') => {
+    setGeminiThinking(value)
+    configService.setGeminiThinking(value === 'default' ? undefined : value)
   }
 
   // Clears Recent Projects (Explorer) and the Quick Open recent-files list.
@@ -852,6 +868,40 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                 />
               )}
             </div>
+
+            <div className="appearance-row">
+              <label htmlFor="gemini-temperature">{t('Temperature')}</label>
+              <input
+                id="gemini-temperature"
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                value={geminiTemperature}
+                onChange={(e) => handleGeminiTemperatureChange(e.target.value)}
+                className="font-size-field"
+              />
+            </div>
+            <p className="setting-description">
+              {t('Sampling temperature sent as generationConfig.temperature. Empty = 0.7 for chat. Agent loops automatically use 0.2 when this is unset - measured runs showed high defaults cause drift and hallucinated details. Lower = more deterministic.')}
+            </p>
+            <div className="appearance-row">
+              <label htmlFor="gemini-thinking">{t('Thinking')}</label>
+              <select
+                id="gemini-thinking"
+                value={geminiThinking}
+                onChange={(e) => handleGeminiThinkingChange(e.target.value as 'default' | 'off' | 'low' | 'high')}
+                className="model-dropdown"
+              >
+                <option value="default">{t('Model default')}</option>
+                <option value="off">{t('Off')}</option>
+                <option value="low">{t('Low')}</option>
+                <option value="high">{t('High')}</option>
+              </select>
+            </div>
+            <p className="setting-description">
+              {t('Reasoning effort sent as generationConfig.thinkingConfig for models that support it (Gemini 3.x thinkingLevel, 2.5 family thinkingBudget). Off means minimal thinking on level models and thinkingBudget 0 on budget models. Models without thinking support receive no field.')}
+            </p>
           </div>
 
           </>
@@ -928,11 +978,13 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
               <p className="setting-description">
                 {managedUser
                   ? `${t('Signed in as')} ${managedUser}`
-                  : t('Not signed in - the app will ask for sign-in on the next screen.')}
+                  : configService.hasManagedSession()
+                    ? t('Signed in')
+                    : t('Not signed in - the app will ask for sign-in on the next screen.')}
                 {managedUser && managedExpiry && (
                   ` · ${t('Session expires')} ${new Date(managedExpiry).toLocaleString()}`
                 )}
-                {managedUser && (
+                {(managedUser || configService.hasManagedSession()) && (
                   <>
                     {' '}
                     <button className="clear-button" onClick={handleManagedSignOut}>
