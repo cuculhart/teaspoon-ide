@@ -19,7 +19,7 @@ export interface ChatMessageRecord {
   // Model that produced this response (e.g. "ollama:qwen3.5:4b")
   model?: string
   // Token counts reported by the provider for this response
-  tokens?: { input?: number; output?: number }
+  tokens?: { input?: number; output?: number; cached?: number }
   // Raw model output before command blocks became display notes (see
   // Chat.tsx). Trimmed from older messages before saving - it can
   // carry whole file bodies that are already on disk.
@@ -30,7 +30,7 @@ export interface ChatMessageRecord {
     kind: 'read' | 'list' | 'grep' | 'find' | 'write' | 'edit' | 'run' | 'close' | 'notice'
     label: string
     target: string
-    status: 'ok' | 'failed' | 'rejected'
+    status: 'ok' | 'failed' | 'rejected' | 'pending'
     detail?: string
   }[]
 }

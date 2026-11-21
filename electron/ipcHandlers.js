@@ -151,6 +151,10 @@ function setupIpcHandlers() {
   // (Settings) live in the same secret store as the key itself.
   const llmRequests = new Map() // requestId -> AbortController
   const LLM_TIMEOUT_MS = 120000
+  // Streaming requests get an idle timeout instead: each SSE chunk resets
+  // it, so a long generation can exceed the fixed cap while a stalled
+  // stream still dies quickly.
+  const LLM_STREAM_IDLE_MS = 45000
 
   function llmEndpoint(credential) {
     const s = loadSecrets()
@@ -170,7 +174,7 @@ function setupIpcHandlers() {
   }
 
   ipcMain.handle('llm-relay', async (event, req) => {
-    const { credential, requestId, method, path: reqPath, body } = req || {}
+    const { credential, requestId, method, path: reqPath, body, stream } = req || {}
     const ep = llmEndpoint(credential)
     if (!ep) return { ok: false, status: 0, error: 'No stored credential for this provider' }
     if (typeof reqPath !== 'string' || !reqPath.startsWith('/') || reqPath.includes('://') || reqPath.includes('..')) {
@@ -178,7 +182,11 @@ function setupIpcHandlers() {
     }
     const ctrl = new AbortController()
     if (typeof requestId === 'string' && requestId) llmRequests.set(requestId, ctrl)
-    const timer = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS)
+    const armTimer = (ms) => {
+      clearTimeout(timer)
+      timer = setTimeout(() => ctrl.abort(), ms)
+    }
+    let timer = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS)
     try {
       const res = await fetch(ep.base + reqPath, {
         method: method || 'POST',
@@ -186,6 +194,38 @@ function setupIpcHandlers() {
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: ctrl.signal,
       })
+      const isSse = (res.headers.get('content-type') || '').includes('text/event-stream')
+      if (stream && res.ok && isSse && res.body) {
+        // SSE relay: parse "data: <json>" events upstream and forward each
+        // parsed object to the renderer keyed by requestId. Each event
+        // re-arms the idle timeout; a stalled stream aborts instead of
+        // waiting out the full fixed cap.
+        armTimer(LLM_STREAM_IDLE_MS)
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          armTimer(LLM_STREAM_IDLE_MS)
+          buf += decoder.decode(value, { stream: true })
+          let nl
+          while ((nl = buf.indexOf('\n')) !== -1) {
+            const line = buf.slice(0, nl).trim()
+            buf = buf.slice(nl + 1)
+            if (!line.startsWith('data:')) continue
+            const payload = line.slice(5).trim()
+            if (!payload || payload === '[DONE]') continue
+            try {
+              const chunk = JSON.parse(payload)
+              if (!event.sender.isDestroyed()) {
+                event.sender.send('llm-relay-chunk', { requestId, chunk })
+              }
+            } catch { /* non-JSON SSE line - skip */ }
+          }
+        }
+        return { ok: true, status: res.status, streamed: true }
+      }
       const text = await res.text()
       let json = null
       try { json = JSON.parse(text) } catch { /* non-JSON error body */ }
@@ -194,6 +234,10 @@ function setupIpcHandlers() {
         ok: false,
         status: res.status,
         error: (json && json.error && json.error.message) || text.slice(0, 500) || res.statusText,
+        // RetryInfo etc. - lets the renderer compute a 429/503 backoff
+        // without parsing the message string.
+        details: json && json.error && json.error.details,
+        retryAfter: res.headers.get('retry-after') || undefined,
       }
     } catch (e) {
       const aborted = ctrl.signal.aborted
@@ -222,7 +266,14 @@ function setupIpcHandlers() {
       const data = await res.json()
       const models = (data.models || [])
         .filter((m) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
-        .map((m) => ({ id: String(m.name || '').replace(/^models\//, ''), name: m.displayName || '', version: m.version || '' }))
+        .map((m) => ({
+          id: String(m.name || '').replace(/^models\//, ''),
+          name: m.displayName || '',
+          version: m.version || '',
+          inputTokenLimit: typeof m.inputTokenLimit === 'number' ? m.inputTokenLimit : undefined,
+          outputTokenLimit: typeof m.outputTokenLimit === 'number' ? m.outputTokenLimit : undefined,
+          generationMethods: Array.isArray(m.supportedGenerationMethods) ? m.supportedGenerationMethods : undefined,
+        }))
         .filter((m) => m.id)
       return { ok: true, models }
     } catch {
@@ -321,6 +372,11 @@ function setupIpcHandlers() {
         path: path.join(dirPath, entry.name),
         isDirectory: entry.isDirectory(),
       }))
+      // Folders before files (VS Code's default sort), case-insensitive
+      // natural order inside each group.
+      items.sort((a, b) =>
+        (a.isDirectory === b.isDirectory ? 0 : a.isDirectory ? -1 : 1)
+        || a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }))
       return { success: true, items }
     } catch (error) {
       return { success: false, error: error.message }

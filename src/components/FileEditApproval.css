@@ -144,6 +144,22 @@
   justify-content: flex-end;
 }
 
+.stop-run-button {
+  background: var(--error);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.stop-run-button:hover {
+  background: var(--error-hover);
+}
+
 .reject-all-button {
   background: var(--bg-active);
   color: var(--text-primary);

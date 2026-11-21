@@ -18,14 +18,23 @@ export interface ModelInfo {
   // API-reported version string (e.g. "3.8") - used to demote
   // previous-generation models in the dropdown. Absent for Ollama.
   version?: string
+  // API-reported context/output limits - drive maxOutputTokens.
+  inputTokenLimit?: number
+  outputTokenLimit?: number
+  // supportedGenerationMethods from the models list - 'generateContent'
+  // is guaranteed by the relay filter; 'streamGenerateContent' gates
+  // the streaming capability.
+  generationMethods?: string[]
 }
 
 // Token counts reported back by a provider when its API returns them
 // (Gemini usageMetadata, Ollama prompt_eval_count/eval_count). Absent
-// fields mean the provider did not report that direction.
+// fields mean the provider did not report that direction. `cached` is
+// the implicit context-cache hit portion of `input` (Gemini only).
 export interface TokenUsage {
   input?: number
   output?: number
+  cached?: number
 }
 
 export interface SendArgs {
@@ -41,6 +50,9 @@ export interface SendArgs {
   agent?: boolean
   // Called once per response when the API reports token counts.
   onUsage?: (usage: TokenUsage) => void
+  // Transient progress state for the loading indicator (e.g. rate-limit
+  // backoff). Not message content.
+  onStatus?: (status: string) => void
 }
 
 // 'main' transport = requests go through the main-process LLM relay so the
@@ -68,7 +80,7 @@ const geminiProvider: ProviderDescriptor = {
   secretKey: 'gemini_api_key',
   isConfigured: () => geminiService.isConfigured(),
   sendMessage: (a) =>
-    geminiService.sendMessage(a.message, a.context, a.history, a.signal, a.model, a.onUsage),
+    geminiService.sendMessage(a.message, a.context, a.history, a.signal, a.model, a.onUsage, a.onDelta, a.agent, a.onStatus),
   listModels: () => geminiService.listModels(),
   capabilities: (m) => geminiService.capabilities(m),
   resolveModel: () => geminiService.resolveModel(),

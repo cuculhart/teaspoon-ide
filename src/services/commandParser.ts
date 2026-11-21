@@ -88,6 +88,17 @@ function cleanRunCommandArg(command: string): string {
 // Ranges inside markdown ``` code fences. Command-looking lines in a
 // fence are documentation/examples ("teach me the commands") and must
 // never execute.
+// Inline `code` spans get the same treatment: a command quoted inside
+// backticks is being shown, not issued.
+function inlineCodeRanges(text: string): [number, number][] {
+  const ranges: [number, number][] = []
+  const re = /`[^`\n]+`/g
+  let m
+  while ((m = re.exec(text)) !== null) {
+    ranges.push([m.index, m.index + m[0].length])
+  }
+  return ranges
+}
 function fencedRanges(text: string): [number, number][] {
   const ranges: [number, number][] = []
   const fenceRe = /^[ \t]*(`{3,})[^\n]*$/gm
@@ -273,13 +284,37 @@ export function findFileCommands(response: string): { commands: FileCommand[]; d
   // ("<placeholder>" args are NOT skipped here: a weak model copying the
   // "<file_path>" template is a real attempt that must fail loudly or
   // trigger the create-project prompt, not vanish silently.)
-  const fences = fencedRanges(response)
-  const inFence = (pos: number) => fences.some(([s, e]) => pos >= s && pos < e)
-  const blocks = commands.filter(c => c.type === 'write' || c.type === 'edit')
-  const executable = commands
+  const fences0 = fencedRanges(response)
+
+  // A marker only counts as a command when it begins a line (leading
+  // whitespace allowed) or continues a previous command on the same
+  // line ("// READ_FILE: a// LIST_FILES: b"). Markers embedded in
+  // prose - a summary quoting "// RUN_COMMAND: start", a doc line -
+  // are documentation text, not invocations.
+  const sorted = commands.slice().sort((a, b) => a.start - b.start)
+  const accepted: FileCommand[] = []
+  const rejectedBlocks: FileCommand[] = []
+  const atLineStart = (i: number) =>
+    /^\s*$/.test(response.slice(response.lastIndexOf('\n', i - 1) + 1, i))
+  for (const c of sorted) {
+    // JSON command blobs carry their own structure - the boundary rule
+    // guards the bare "//"/":::" markers only.
+    const isJson = response[c.start] === '{'
+    const glued = accepted.some(
+      (p) => p.end <= c.start && /^[ \t]*$/.test(response.slice(p.end, c.start))
+    )
+    if (isJson || atLineStart(c.start) || glued) accepted.push(c)
+    else if (c.type === 'write' || c.type === 'edit') rejectedBlocks.push(c)
+  }
+
+  const docMasks = [...fences0, ...inlineCodeRanges(response)]
+  const inFence = (pos: number) => docMasks.some(([s, e]) => pos >= s && pos < e)
+  const blocks = [...accepted, ...rejectedBlocks].filter(c => c.type === 'write' || c.type === 'edit')
+  const executable = accepted
     .filter(c => !inFence(c.start) && !blocks.some(b => c !== b && c.start >= b.start && c.start < b.end))
     .sort((a, b) => a.start - b.start)
-  // Fence spans are masked from the caller's malformed/invented-command
-  // scans so documented syntax can't trigger retry feedback.
-  return { commands: executable, docSpans: fences }
+  // Fence/inline-code spans are masked from the caller's
+  // malformed/invented-command scans so documented syntax can't
+  // trigger retry feedback.
+  return { commands: executable, docSpans: docMasks }
 }

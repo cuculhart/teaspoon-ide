@@ -8,9 +8,12 @@ interface CommandApprovalProps {
   onApprove: (commands: string[]) => void
   onReject: () => void
   onRejectOne: (command: string) => void
+  // Abort the whole agent run (reject + cancel) - the chat's Stop button
+  // is unreachable under this modal's fullscreen overlay.
+  onCancel?: () => void
 }
 
-const CommandApproval: React.FC<CommandApprovalProps> = ({ commands, onApprove, onReject, onRejectOne }) => {
+const CommandApproval: React.FC<CommandApprovalProps> = ({ commands, onApprove, onReject, onRejectOne, onCancel }) => {
   const t = useT()
   return (
     <div className="file-edit-approval">
@@ -46,6 +49,11 @@ const CommandApproval: React.FC<CommandApprovalProps> = ({ commands, onApprove, 
         </p>
 
         <div className="approval-actions">
+          {onCancel && (
+            <button className="stop-run-button" onClick={onCancel} title={t('Cancel request')}>
+              ■ {t('Stop')}
+            </button>
+          )}
           <button className="reject-all-button" onClick={onReject}>
             {t('Reject All')}
           </button>

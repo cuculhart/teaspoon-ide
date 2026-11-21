@@ -15,7 +15,15 @@ execFileSync('npx', ['esbuild', 'src/services/geminiRest.ts', '--bundle', '--for
   cwd: root, stdio: 'inherit', shell: true,
 })
 
-const { generateContentPath, geminiErrorMessage, extractResponseText } = await import(pathToFileURL(out).href)
+const {
+  generateContentPath,
+  streamGenerateContentPath,
+  geminiErrorMessage,
+  extractResponseText,
+  extractStreamDelta,
+  extractUsage,
+  parseRetryDelaySeconds,
+} = await import(pathToFileURL(out).href)
 
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => {
@@ -58,6 +66,44 @@ check('model id is encoded', generateContentPath('a b').includes('a%20b'))
 }
 check('text fallback', geminiErrorMessage(null, 'raw body') === 'raw body')
 check('last resort', geminiErrorMessage(null, '') === 'Unknown error')
+
+// --- streamGenerateContentPath ---
+check('stream path shape',
+  streamGenerateContentPath('gemini-3.8-flash') === '/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse')
+check('stream path passes relay validation',
+  streamGenerateContentPath('x').startsWith('/') && !streamGenerateContentPath('x').includes('://') && !streamGenerateContentPath('x').includes('..'))
+check('stream model id encoded', streamGenerateContentPath('a b').includes('a%20b'))
+
+// --- extractStreamDelta ---
+check('delta joins parts', extractStreamDelta({ candidates: [{ content: { parts: [{ text: 'a' }, { text: 'b' }] } }] }) === 'ab')
+check('delta tolerates usage-only chunk', extractStreamDelta({ usageMetadata: { promptTokenCount: 1 } }) === '')
+check('delta tolerates empty candidates', extractStreamDelta({ candidates: [] }) === '')
+check('delta tolerates null', extractStreamDelta(null) === '')
+
+// --- extractUsage ---
+{
+  const u = extractUsage({ usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 5, cachedContentTokenCount: 60 } })
+  check('usage sums thoughts into output', u?.output === 25, JSON.stringify(u))
+  check('usage reports cached', u?.cached === 60)
+}
+{
+  const u = extractUsage({ usageMetadata: { promptTokenCount: 10 } })
+  check('usage omits zero cached', u?.cached === undefined && u?.output === undefined && u?.input === 10)
+}
+check('usage absent without metadata', extractUsage({}) === undefined)
+
+// --- parseRetryDelaySeconds ---
+{
+  const details = [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '12s' }]
+  check('RetryInfo seconds parsed', parseRetryDelaySeconds(details) === 12)
+}
+{
+  const details = [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0.5s' }]
+  check('RetryInfo fractional seconds', parseRetryDelaySeconds(details) === 0.5)
+}
+check('Retry-After header fallback', parseRetryDelaySeconds(undefined, '7') === 7)
+check('no info returns null', parseRetryDelaySeconds([{ '@type': 'other' }]) === null)
+check('bad RetryInfo falls through to header', parseRetryDelaySeconds([{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: 'garbage' }], '3') === 3)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

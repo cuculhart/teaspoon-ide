@@ -197,11 +197,23 @@ async function sendChat(page, text) {
   await page.click('.send-button')
 }
 
-const messagesText = (page) => page.locator('.chat-messages').innerText()
+// Completed agent-run cards render as collapsed <details> - their step
+// notes are hidden from innerText until opened, so expand them before
+// asserting on message text.
+const expandRunCards = () =>
+  document.querySelectorAll('.chat-messages details:not([open])').forEach((d) => { d.open = true })
+
+const messagesText = async (page) => {
+  await page.evaluate(expandRunCards)
+  return page.locator('.chat-messages').innerText()
+}
 
 function waitForMarker(page, text, timeout = 45000) {
   return page.waitForFunction(
-    (t) => document.querySelector('.chat-messages')?.innerText?.includes(t),
+    (t) => {
+      document.querySelectorAll('.chat-messages details:not([open])').forEach((d) => { d.open = true })
+      return document.querySelector('.chat-messages')?.innerText?.includes(t)
+    },
     text, { timeout },
   )
 }

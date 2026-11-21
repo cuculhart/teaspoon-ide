@@ -70,6 +70,8 @@ const STORAGE_KEYS: Record<string, string> = {
   OLLAMA_NUM_CTX: 'ollama_num_ctx',
   OLLAMA_TEMPERATURE: 'ollama_temperature',
   OLLAMA_THINK: 'ollama_think',
+  GEMINI_TEMPERATURE: 'gemini_temperature',
+  GEMINI_THINKING: 'gemini_thinking',
   LANGUAGE: 'language',
   MANAGED_MODE: 'managed_mode',
   MANAGED_SERVER_URL: 'managed_server_url',
@@ -436,6 +438,39 @@ class ConfigService {
       this.remove('OLLAMA_THINK', 'ollama_think')
     } else {
       this.set('OLLAMA_THINK', think === true ? '1' : think === false ? '0' : think)
+    }
+  }
+
+  // Sampling temperature sent as generationConfig.temperature. Same rule
+  // as Ollama: empty = model default; agent loops fall back to a low
+  // deterministic default when unset (see geminiService).
+  getGeminiTemperature(): number | undefined {
+    const value = parseFloat(this.get('GEMINI_TEMPERATURE') || '')
+    return Number.isFinite(value) && value >= 0 && value <= 2 ? value : undefined
+  }
+
+  setGeminiTemperature(temperature: number | undefined): void {
+    if (temperature !== undefined && temperature >= 0 && temperature <= 2) {
+      this.set('GEMINI_TEMPERATURE', String(temperature))
+    } else {
+      this.remove('GEMINI_TEMPERATURE', 'gemini_temperature')
+    }
+  }
+
+  // Thinking control mapped onto generationConfig.thinkingConfig:
+  // 'low'/'high' = effort level (Gemini 3.x thinkingLevel), 'off' =
+  // minimum thinking (level 'low' on level models, thinkingBudget 0 on
+  // budget models). undefined = Model default (field omitted).
+  getGeminiThinking(): 'low' | 'high' | 'off' | undefined {
+    const value = this.get('GEMINI_THINKING')
+    return value === 'low' || value === 'high' || value === 'off' ? value : undefined
+  }
+
+  setGeminiThinking(thinking: 'low' | 'high' | 'off' | undefined): void {
+    if (thinking === undefined) {
+      this.remove('GEMINI_THINKING', 'gemini_thinking')
+    } else {
+      this.set('GEMINI_THINKING', thinking)
     }
   }
 

@@ -4,6 +4,9 @@ export interface LlmRelayRequest {
   method?: string
   path: string
   body?: unknown
+  // True: ask the main process to consume the response as an SSE stream
+  // and forward each data event via 'llm-relay-chunk'.
+  stream?: boolean
 }
 
 export interface LlmRelayResult {
@@ -12,6 +15,12 @@ export interface LlmRelayResult {
   json?: any
   error?: string
   aborted?: boolean
+  // True when the response was consumed as SSE - chunks arrived via
+  // onLlmRelayChunk instead of `json`.
+  streamed?: boolean
+  // google.rpc error details (RetryInfo etc.) on non-2xx responses.
+  details?: any
+  retryAfter?: string
 }
 
 export interface ElectronAPI {
@@ -24,7 +33,8 @@ export interface ElectronAPI {
   // LLM relay - main process attaches the stored credential and fetches.
   llmRelay: (req: LlmRelayRequest) => Promise<LlmRelayResult>
   llmRelayAbort: (requestId: string) => void
-  llmListModels: (req: { credential: 'personal' | 'managed' }) => Promise<{ ok: boolean; status?: number; models?: Array<{ id: string; name?: string; version?: string }> }>
+  onLlmRelayChunk: (requestId: string, callback: (chunk: any) => void) => () => void
+  llmListModels: (req: { credential: 'personal' | 'managed' }) => Promise<{ ok: boolean; status?: number; models?: Array<{ id: string; name?: string; version?: string; inputTokenLimit?: number; outputTokenLimit?: number; generationMethods?: string[] }> }>
   managedUsage: () => Promise<{ spend: number; maxBudget: number | null; resetAt?: string } | null>
   readFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string }>
   writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>
