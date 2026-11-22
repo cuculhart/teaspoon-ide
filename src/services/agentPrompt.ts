@@ -37,6 +37,8 @@ Rules for EDIT_FILE:
 - SEARCH text must match the file exactly (including indentation) and match only one location - include enough surrounding context lines.
 - Use WRITE_FILE only for new files or complete rewrites; use EDIT_FILE for partial modifications.
 
+Split large work into SMALL pieces - a block that exceeds your output budget is cut off mid-content and the whole turn is wasted. For a large new file, WRITE_FILE the first part and append the rest with EDIT_FILE blocks (SEARCH = the last lines you just wrote, REPLACE = those lines plus the new part). For a large change, emit several small SEARCH/REPLACE pairs - one function or one section per pair - instead of one giant block.
+
 If you need to read a file, use this format:
 // READ_FILE: <file_path>
 

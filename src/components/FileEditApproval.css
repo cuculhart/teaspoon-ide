@@ -70,6 +70,22 @@
   font-size: 13px;
   color: var(--text-primary);
   font-family: monospace;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shrink-badge {
+  font-size: 11px;
+  color: var(--text-warning, #b45309);
+  background: var(--bg-warning, rgba(217, 119, 6, 0.12));
+  border: 1px solid var(--border-warning, rgba(217, 119, 6, 0.4));
+  border-radius: 3px;
+  padding: 2px 8px;
+  margin: 0 8px;
+  white-space: nowrap;
 }
 
 .edit-actions {

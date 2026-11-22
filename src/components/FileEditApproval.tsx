@@ -54,6 +54,18 @@ const FileEditApproval: React.FC<FileEditApprovalProps> = ({ edits, onApprove, o
     return Math.min(Math.max(lines * 19 + 20, 120), 480)
   }
 
+  // Mirrors looksLikeFragment in Chat.tsx: a write/edit that shrinks a
+  // non-trivial file to under half its size is usually a truncated
+  // fragment. The agent loop blocks the first emission; reaching the
+  // dialog means the model re-sent it intentionally - warn the user
+  // before they approve the data loss.
+  const shrinksFile = (edit: FileEdit): boolean => {
+    if (edit.oldContent.trim() === '') return false
+    if (edit.newContent.trim() === '') return true
+    const oldLines = edit.oldContent.split('\n').length
+    return oldLines >= 20 && edit.newContent.split('\n').length * 2 < oldLines
+  }
+
   return (
     <div className="file-edit-approval">
       <div className="approval-content">
@@ -67,6 +79,9 @@ const FileEditApproval: React.FC<FileEditApprovalProps> = ({ edits, onApprove, o
             <div key={edit.filePath} className="edit-item">
               <div className="edit-header">
                 <span className="file-path">{edit.filePath}</span>
+                {shrinksFile(edit) && (
+                  <span className="shrink-badge">{t('This edit drastically shrinks the file')}</span>
+                )}
                 <div className="edit-actions">
                   <button
                     className="expand-button"

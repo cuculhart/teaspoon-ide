@@ -27,7 +27,7 @@ interface Message {
   // Model that produced this response (e.g. "ollama:qwen3.5:4b")
   model?: string
   // Token counts reported by the provider for this response
-  tokens?: { input?: number; output?: number; cached?: number }
+  tokens?: { input?: number; output?: number; cached?: number; doneReason?: string }
   // The model's raw output, before command blocks were replaced with
   // readable notes. Sent back as history so the model never sees the
   // "Ran: ..." note format (small models imitate it and emit fake notes).
@@ -40,6 +40,10 @@ interface Message {
   // the user but must never be sent back to the model - as a `model`
   // role entry it would look like the AI said the error text itself.
   isError?: boolean
+  // One-click recovery offer for a context-saturated empty reply: a
+  // proposed num_ctx value the user can raise for this session and
+  // retry with. Ollama only.
+  canRaiseNumCtx?: number
 }
 
 const formatLatency = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`)
@@ -70,6 +74,32 @@ const ACTION_ICON: Record<AgentAction['kind'], string> = {
 }
 const actionIcon = (a: AgentAction) =>
   a.status === 'rejected' ? '⏭️' : a.status === 'failed' ? '⚠️' : a.status === 'pending' ? '⏳' : ACTION_ICON[a.kind]
+
+// File bodies the model emitted sit in model-bound history as dead
+// weight: once written they are on disk and re-readable, but each
+// full block still consumes the context budget on EVERY later call -
+// this is the dominant accumulator that pushes long implementation
+// runs into context saturation (which then surfaces as truncated or
+// empty replies). Reduce older blocks to their marker lines so the
+// model keeps the record of WHAT it did; the freshest assistant reply
+// stays intact so "continue where you stopped" still matches it.
+const elideFileBlocks = (text: string) => {
+  let out = text.replace(
+    /((?:\/\/|:::)[ \t]*(?:WRITE_FILE|EDIT_FILE)[ \t]*:[^\n]*\n)[\s\S]*?((?:\/\/|:::)[ \t]*END_(?:WRITE_FILE|EDIT_FILE))/g,
+    (_m, open, close) => `${open}(content omitted - on disk, emit READ_FILE to view)\n${close}`,
+  )
+  // A truncated reply leaves an opener whose body runs to the end of
+  // the message - same dead weight. Elide it only when no complete END
+  // marker follows, so a later intact block is never eaten.
+  const tailOpen = /(?:\/\/|:::)[ \t]*(?:WRITE_FILE|EDIT_FILE)[ \t]*:[^\n]*\n/g
+  let last: RegExpExecArray | null = null
+  let m: RegExpExecArray | null
+  while ((m = tailOpen.exec(out)) !== null) last = m
+  if (last && !/(?:\/\/|:::)[ \t]*END_(?:WRITE_FILE|EDIT_FILE)/.test(out.slice(last.index + last[0].length))) {
+    out = out.slice(0, last.index + last[0].length) + '(partial block omitted - the reply was cut off)'
+  }
+  return out
+}
 
 // Recent messages sent to the model verbatim; older turns are folded
 // into the rolling contextSummary instead, keeping model input bounded.
@@ -188,6 +218,10 @@ interface CommandExecutionResult {
   actions?: AgentAction[]
   // Snapshot of files before AI writes - enables rollback
   checkpoint?: { path: string; prevContent: string; existed: boolean }[]
+  // Full READ_FILE result bodies fed back this step - kept so a
+  // saturated context can swap their copies in history/input for a
+  // placeholder instead of keeping the whole file in the prompt.
+  readBodies?: { path: string; text: string }[]
 }
 
 // Command parsing lives in ../services/commandParser (unit-testable there).
@@ -264,6 +298,17 @@ function applyEditBlocks(
   return { content: out, alreadyApplied: sawAlreadyApplied && !changed }
 }
 
+// A write/edit result that shrinks a non-trivial file to under half
+// its size - or empties it - is almost always a fragment: the model
+// sent "the first section for now" as a complete file. Blocking it
+// once beats silently deleting the rest.
+function looksLikeFragment(oldContent: string, newContent: string): boolean {
+  if (oldContent.trim() === '') return false
+  if (newContent.trim() === '') return true
+  const oldLines = oldContent.split('\n').length
+  return oldLines >= 20 && newContent.split('\n').length * 2 < oldLines
+}
+
 // Parse and execute file commands from AI response.
 // Reads/lists run immediately; writes are collected and held until the
 // user approves them via the approval callback.
@@ -304,6 +349,19 @@ async function parseAndExecuteFileCommands(
     modifiedFiles?: Set<string>
     // The "code shown but not written" nudge fires at most once per run.
     codeShownNudged?: boolean
+    // The last model reply was cut off by the output/context token
+    // limit (done_reason 'length'). Malformed-block feedback then tells
+    // the model to shrink its next output instead of resending the same
+    // size block that truncated before.
+    lastTurnTruncated?: boolean
+    // Root-relative paths whose earlier READ_FILE result body was elided
+    // from model-bound history. A repeat read must return full content -
+    // the "unchanged" shortcut would point at content the model cannot
+    // see any more.
+    elidedReads?: Set<string>
+    // Paths already warned about a drastic-shrink write/edit this run.
+    // A resend after the block counts as an intentional rewrite.
+    shrinkWarned?: Set<string>
   },
   // Called each time an action lands so the step card grows live instead
   // of appearing only after every command in the step has finished.
@@ -414,8 +472,27 @@ async function parseAndExecuteFileCommands(
   const JA_DEFERRAL =
     /(?:次の応答|次回の応答|次のメッセージ|続きを|続けて|残りの).{0,60}?(?:お知らせください|教えてください|言ってください|進めてください)|(?:進めてください|続けてください|続きをどうぞ)/u
   const EN_DEFERRAL =
-    /\b(?:in the next (?:response|message|turn)|next response|say (?:the word )?["']?continue["']?|shall I (?:continue|proceed)|to (?:continue|proceed)[,.]? (?:just )?(?:let me know|say)|let me know.{0,40}(?:continue|proceed|go ahead))/i
+    /\b(?:in the next (?:response|message|turn)|next response|say (?:the word )?["']?continue["']?|shall (?:I|we) (?:continue|proceed|implement|create|write|add|start)|to (?:continue|proceed)[,.]? (?:just )?(?:let me know|say)|let me know.{0,40}(?:continue|proceed|go ahead))/i
+  // Polite work-offer endings defer the same way: "〜を作成します。
+  // よろしいでしょうか？" or "〜に取り掛かりましょうか？" announce the next
+  // unit of work and wait for a confirmation the loop does not need.
+  // Small local models emit one file per turn and stop this way.
+  const JA_WORK_OFFER =
+    /(?:取り掛か|取りかか|着手|開始|作成|作り|書き|実装|記述|実行|進め|続け|修正|変更|追加|対応|仕上げ|確認|実施|始め)(?:り|し)?ましょうか/u
+  const JA_ANNOUNCE_THEN_ASK =
+    /(?:取り掛か|取りかか|着手|作成|作製|実装|記述|実行|進め|続け|修正|変更|追加|対応|仕上げ|確認|実施)(?:り|し|いたし)?ます[^。]{0,30}。\s*(?:よろしい|いかが|よい|いい|大丈夫)でしょうか/u
+  // Declarative next-work endings defer the same way without asking:
+  // "次に script.js を実装します" / "次はフェーズ2に進めます" announce
+  // unfinished work then stop. The 次/今後/残り marker plus a work verb
+  // in declarative (non-question) form is the signal - past tense and
+  // user-instructions ("〜してください") are excluded by the endings.
+  const JA_NEXT_WORK =
+    /(?:次[にのは、\s]|今後|残り|以降)[^。！？\n]{0,60}(?:実装|進め|進み|着手|取り掛か|取りかか|作成|作製|作り|開発|継続|対応|修正|追加|実施|確認|説明)(?:り|し|ていき|る|ましょ|ま)?(?:ます|す|ましょう|う|です|でしょう|予定|べき)/u
+  const EN_NEXT_WORK =
+    /\b(?:next,?|then,?|I(?:'ll| will| shall) (?:now )?|let me (?:now )?|we(?:'ll| will) (?:now )?)\s*(?:implement|proceed|continue|create|write|add|start|build|move on|work on)/i
   const deferred = JA_DEFERRAL.test(scanText) || EN_DEFERRAL.test(scanText)
+    || JA_WORK_OFFER.test(scanText) || JA_ANNOUNCE_THEN_ASK.test(scanText)
+    || JA_NEXT_WORK.test(scanText) || EN_NEXT_WORK.test(scanText)
   // "how is X created" / "where is X written" are questions, not
   // file-creation requests - a fenced snippet there is an explanation.
   // Missing a real nudge is cheap; a false one burns a paid turn.
@@ -435,6 +512,7 @@ async function parseAndExecuteFileCommands(
 
   const notes: (string | null)[] = new Array(commands.length).fill(null)
   const feedback: string[] = []
+  const readBodies: { path: string; text: string }[] = []
   // Structured mirror of the note lines: one entry per executed action,
   // in the order it actually ran (writes run after reads regardless of
   // their position in the model's text).
@@ -464,6 +542,11 @@ async function parseAndExecuteFileCommands(
       `Malformed command block(s): ${[...new Set(malformedBlocks)].join(', ')}. ` +
       'A WRITE_FILE block must end with "// END_WRITE_FILE" and an EDIT_FILE block with "// END_EDIT_FILE". ' +
       'Emit the complete block again with the correct terminator - do not omit any part of the file.' +
+      // A token-limit cut means the SAME resend truncates again - the
+      // model must shrink this turn's output, not repeat the block.
+      (state?.lastTurnTruncated
+        ? ' Your reply hit the output token limit - keep this turn SHORT: minimal prose, and emit file content in small pieces (a few EDIT_FILE blocks at a time, or WRITE_FILE a first part then append with EDIT_FILE).'
+        : '') +
       (malformedDetails.length ? `\n${malformedDetails.join('\n')}` : '')
     )
     pushAction({ kind: 'notice', label: i18nService.t('Incomplete command block - asking the model to retry'), target: '', status: 'failed' })
@@ -503,6 +586,23 @@ async function parseAndExecuteFileCommands(
     pushAction({ kind: 'notice', label: i18nService.t('Code shown but not written - asking the model to retry'), target: '', status: 'failed' })
     if (state) state.codeShownNudged = true
     needsContinuation = true
+  }
+  // A block can be syntactically valid yet still burn most of the
+  // output budget - giant write/edit bodies are exactly what gets
+  // truncated next turn. The command is executed as-is; the advisory
+  // only steers the model to split the NEXT one.
+  const hugeCmd = commands.find(c =>
+    (c.type === 'write' || c.type === 'edit')
+    && (c.body?.split('\n').length ?? 0) >= 80)
+  if (hugeCmd) {
+    const name = hugeCmd.type === 'write' ? 'WRITE_FILE' : 'EDIT_FILE'
+    feedback.push(
+      `${name} ${hugeCmd.arg}: that block was ~${hugeCmd.body!.split('\n').length} lines long. ` +
+      `Large blocks risk being cut off by the output limit before they finish - ` +
+      `next time split the work into smaller pieces ` +
+      `(several small SEARCH/REPLACE pairs, or a short WRITE_FILE part appended with EDIT_FILE).`
+    )
+    pushAction({ kind: 'notice', label: i18nService.t('Large block - asking the model to split future work'), target: hugeCmd.arg, status: 'ok' })
   }
   const pendingWrites: { index: number; path: string; arg: string; body: string }[] = []
   const pendingEdits: { index: number; path: string; arg: string; body: string }[] = []
@@ -635,7 +735,11 @@ async function parseAndExecuteFileCommands(
         if (result.success) {
           const rel = pathRelativeToRoot(filePath)
           console.log(`File read: ${filePath}`)
-          if (state?.readCache?.get(filePath) === result.content) {
+          if (state?.readCache?.get(filePath) === result.content
+            // An elided earlier result is NOT in history any more -
+            // "unchanged" would tell the model to use content it
+            // cannot see. Elided paths always get the full body again.
+            && !state?.elidedReads?.has(rel)) {
             // Same file, same content - the model is re-verifying a file
             // it already has. Answer without re-sending the full text.
             notes[i] = `📖 ${i18nService.t('Read file')}: ${rel} (${i18nService.t('unchanged')})`
@@ -648,7 +752,9 @@ async function parseAndExecuteFileCommands(
             state?.readFiles?.add(rel)
             notes[i] = `📖 ${i18nService.t('Read file')}: ${rel}`
             pushAction({ kind: 'read', label: i18nService.t('Read file'), target: rel, status: 'ok' })
-            feedback.push(`READ_FILE ${rel} result:\n${result.content}`)
+            const resultText = `READ_FILE ${rel} result:\n${result.content}`
+            feedback.push(resultText)
+            readBodies.push({ path: rel, text: resultText })
           }
         } else {
           console.error(`Failed to read file: ${filePath}`, result.error)
@@ -747,6 +853,27 @@ async function parseAndExecuteFileCommands(
           needsContinuation = true
           continue
         }
+        // A "full rewrite" that shrinks a real file to a fraction of
+        // its size is usually a fragment - the model emitted the first
+        // section as if it were the whole file. Block it once and let
+        // the model split it into pieces; a repeat counts as an
+        // intentional rewrite and goes through.
+        if (looksLikeFragment(oldContent, item.body)
+          && !state?.shrinkWarned?.has(item.arg)) {
+          if (state) (state.shrinkWarned ??= new Set()).add(item.arg)
+          batchEditFailed = true
+          notes[item.index] = `⚠️ ${i18nService.t('Write blocked - result much smaller')} ${item.arg}`
+          pushAction({ kind: 'write', label: i18nService.t('Write blocked - result much smaller'), target: item.arg, status: 'failed' })
+          feedback.push(
+            `WRITE_FILE ${item.arg}: blocked - the file is ~${oldContent.split('\n').length} lines but your ` +
+            `write contains only ~${item.body.split('\n').length} lines, which looks like a fragment, not the ` +
+            `complete file. Emit the REST of the file content as an "// EDIT_FILE: ${item.arg}" block (SEARCH = ` +
+            `the last lines of the current content, REPLACE = those lines plus the new part). If you truly ` +
+            `intended to replace the whole file with this shorter version, emit the WRITE_FILE block again unchanged.`
+          )
+          needsContinuation = true
+          continue
+        }
         const edit: FileEdit = { filePath: item.path, oldContent, newContent: item.body }
         edits.push(edit)
         planByEdit.set(edit, item)
@@ -790,6 +917,23 @@ async function parseAndExecuteFileCommands(
           continue
         }
         if (state) state.editFailCount = 0
+        // Same fragment guard as the WRITE_FILE path: a syntactically
+        // valid edit can still shrink the file to a stub.
+        if (looksLikeFragment(oldContent, applied.content!)
+          && !state?.shrinkWarned?.has(item.arg)) {
+          if (state) (state.shrinkWarned ??= new Set()).add(item.arg)
+          batchEditFailed = true
+          notes[item.index] = `⚠️ ${i18nService.t('Edit blocked - result much smaller')} ${item.arg}`
+          pushAction({ kind: 'edit', label: i18nService.t('Edit blocked - result much smaller'), target: item.arg, status: 'failed' })
+          feedback.push(
+            `EDIT_FILE ${item.arg}: blocked - the file is ~${oldContent.split('\n').length} lines but your edit ` +
+            `leaves only ~${applied.content!.split('\n').length} lines, which looks like an accidental fragment. ` +
+            `Split the change into smaller SEARCH/REPLACE pairs (one function or one section per pair). If the ` +
+            `shrink is intentional, emit the same block again unchanged and it will be applied.`
+          )
+          needsContinuation = true
+          continue
+        }
         const edit: FileEdit = { filePath: item.path, oldContent, newContent: applied.content! }
         edits.push(edit)
         planByEdit.set(edit, item)
@@ -1009,7 +1153,7 @@ async function parseAndExecuteFileCommands(
     display += `\n\n⚠️ ${i18nService.t('Deferred to a later response - asking the model to continue now')}`
   }
 
-  return { display: display.trim(), feedback, needsContinuation, checkpoint, actions }
+  return { display: display.trim(), feedback, needsContinuation, checkpoint, actions, readBodies }
 }
 
 // PTY output contains ANSI escape sequences - strip them before
@@ -1564,6 +1708,14 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
     await sendToAI(retryMessage, base)
   }
 
+  // One-click recovery from a saturated context: raise num_ctx for this
+  // session only (not persisted - a bigger window that outlives the
+  // machine's RAM should be a deliberate Settings choice) and retry.
+  const handleRaiseNumCtx = async (ctx: number) => {
+    configService.setSessionOllamaNumCtx(ctx)
+    await handleRetry()
+  }
+
   const sendToAI = async (userMessage: Message, historyBase: Message[]) => {
     setIsLoading(true)
     setRunStatus(null)
@@ -1579,6 +1731,12 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
     // Create abort controller for this request
     const controller = new AbortController()
     setAbortController(controller)
+
+    // Usage from the most recent provider call - the Ollama
+    // context-saturation check (empty replies near num_ctx) and the
+    // history-elision thresholds both key off it, and the error path
+    // below reads it after a failed call too.
+    let lastUsage: Message['tokens']
 
     try {
       // Get project context dynamically
@@ -1635,6 +1793,9 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
       // whose results it needs before it can continue. Execute the commands,
       // feed the results back to the model, and repeat until the model
       // responds without commands or we hit the step limit.
+      // +1 over the work budget: the closing-summary turn runs inside
+      // the loop too, so a model that keeps working (or defers) there
+      // gets its results fed back instead of ending the run mid-task.
       const MAX_STEPS = 6
       // Feed raw model output as history - display notes like "Ran: ..."
       // are UI decoration, and small models imitate them as fake output.
@@ -1647,10 +1808,26 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         // it as the request prompt, and listing it in history too would
         // send it twice. It is pushed after the first call so later
         // agent-loop steps still see the original turn.
-        cleanHistoryBase.slice(-HISTORY_WINDOW).map((m) => ({
-          ...m,
-          content: m.rawContent ?? (m.role === 'assistant' ? stripNoteLines(m.content) : m.content),
-        }))
+        // Older assistant file bodies (WRITE_FILE/EDIT_FILE contents)
+        // are dead weight in every subsequent prompt - the files are on
+        // disk. All but the freshest assistant turn are reduced to
+        // their marker lines so the record of what happened survives
+        // while the context budget is freed.
+        (() => {
+          const base = cleanHistoryBase.slice(-HISTORY_WINDOW).map((m) => ({
+            ...m,
+            content: m.rawContent ?? (m.role === 'assistant' ? stripNoteLines(m.content) : m.content),
+          }))
+          let lastAssistant = -1
+          for (let i = base.length - 1; i >= 0; i--) {
+            if (base[i].role === 'assistant') { lastAssistant = i; break }
+          }
+          return base.map((m, i) =>
+            m.role === 'assistant' && i !== lastAssistant
+              ? { ...m, content: elideFileBlocks(m.content) }
+              : m,
+          )
+        })()
       let currentInput = userMessage.content
       let lastStepRanCommands = false
       // Tracks consecutive EDIT_FILE failures across loop steps so the
@@ -1667,10 +1844,70 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         readCache: new Map<string, string>(),
         readFiles: new Set<string>(),
         modifiedFiles: new Set<string>(),
+        lastTurnTruncated: false,
+        elidedReads: new Set<string>(),
+        shrinkWarned: new Set<string>(),
+      }
+      // READ_FILE result bodies fed back so far this run - their copies
+      // in historyForRequest get swapped for placeholders when the
+      // context approaches saturation.
+      let pendingReadBodies: { path: string; text: string }[] = []
+      const numCtxLimit = llmPin.provider === 'ollama'
+        ? (configService.getOllamaNumCtx() ?? 4096)
+        : 0
+      // Swap each remembered read-result body in the request history for
+      // a placeholder line, and mark the path so a re-read re-sends the
+      // full content instead of the "unchanged" shortcut.
+      const elideReadBodies = () => {
+        if (pendingReadBodies.length === 0) return
+        for (const e of historyForRequest) {
+          if (e.role !== 'user') continue
+          for (const b of pendingReadBodies) {
+            if (e.content.includes(b.text)) {
+              e.content = e.content.replace(
+                b.text,
+                `READ_FILE ${b.path} result:\n(content omitted - on disk, emit READ_FILE to view)`,
+              )
+              agentState.elidedReads.add(b.path)
+            }
+          }
+        }
+        pendingReadBodies = []
+      }
+      // Reduce older in-run assistant replies to their command marker
+      // lines; the freshest stays intact for "continue where you stopped".
+      const elideOlderAssistantBlocks = () => {
+        let last = -1
+        for (let i = historyForRequest.length - 1; i >= 0; i--) {
+          if (historyForRequest[i].role === 'assistant') { last = i; break }
+        }
+        for (let i = 0; i < historyForRequest.length; i++) {
+          const e = historyForRequest[i]
+          if (e.role === 'assistant' && i !== last) {
+            const elided = elideFileBlocks(e.content)
+            if (elided !== e.content) e.content = elided
+          }
+        }
+      }
+      // One-shot guard: warn the user at most once per run when a failed
+      // write/edit was never retried, regardless of which path ended it.
+      let unresolvedWarned = false
+      const warnUnresolvedEdit = () => {
+        if (unresolvedWarned || !agentState.unresolvedEdit) return
+        unresolvedWarned = true
+        setMessages((prev) => [...prev, {
+          role: 'assistant',
+          content: `⚠️ ${i18nService.t('A file edit failed and was never retried - the reported changes may not exist on disk. Please verify the file.')}`,
+          timestamp: Date.now(),
+          isError: true,
+        }])
       }
       // One-shot guard: nudge the model at most once when it declares
       // completion while a failure is still unresolved.
       let failureNudged = false
+      // The closing-summary request fires at most once per run, after a
+      // step that executed commands.
+      let summaryAsked = false
       // The create-project prompt is offered at most once per user turn
       projectPromptShownRef.current = false
 
@@ -1700,6 +1937,27 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         onDelta: ((delta: string) => void) | undefined,
         onUsage: (u: NonNullable<Message['tokens']>) => void,
       ): Promise<string> => {
+        // A saturating context window surfaces as truncated or empty
+        // replies - shrink the biggest prompt contributors before the
+        // call instead of burning retries on a request that cannot fit.
+        // Past ~90% of num_ctx even the input about to be sent gets its
+        // read bodies elided: a placeholder beats an empty reply.
+        if (numCtxLimit > 0 && lastUsage?.input != null && lastUsage.input >= numCtxLimit * 0.7) {
+          elideReadBodies()
+          elideOlderAssistantBlocks()
+          if (lastUsage.input >= numCtxLimit * 0.9) {
+            input = elideFileBlocks(input)
+            for (const b of pendingReadBodies) {
+              if (input.includes(b.text)) {
+                input = input.replace(
+                  b.text,
+                  `READ_FILE ${b.path} result:\n(content omitted - on disk, emit READ_FILE to view)`,
+                )
+                agentState.elidedReads.add(b.path)
+              }
+            }
+          }
+        }
         const attempt = (n: number): Promise<string> =>
           llmService.sendMessage(input, context, historyForRequest, onDelta, controller.signal, llmPin, true, onUsage, setRunStatus)
             .catch((e) => {
@@ -1711,13 +1969,13 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         return attempt(0)
       }
 
-      for (let step = 0; step < MAX_STEPS; step++) {
+      for (let step = 0; step < MAX_STEPS + 1; step++) {
         if (controller.signal.aborted) break
 
         const { onDelta, getStreamed } = makeStreamHandler()
         const callStart = performance.now()
         let usage: Message['tokens']
-        const response = await sendAgent(currentInput, onDelta, (u) => { usage = u })
+        const response = await sendAgent(currentInput, onDelta, (u) => { usage = u; lastUsage = u })
         const latencyMs = Math.round(performance.now() - callStart)
         // Persist this step's prompt (the user message at step 0, tool
         // results afterwards) into the running history. Without this each
@@ -1750,7 +2008,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
             return copy
           })
 
-        const { display, feedback, needsContinuation, checkpoint, actions } = await parseAndExecuteFileCommands(response, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, requestProject, agentState, (acts) => updateStep({ actions: [...acts] }))
+        const { display, feedback, needsContinuation, checkpoint, actions, readBodies } = await parseAndExecuteFileCommands(response, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, requestProject, agentState, (acts) => updateStep({ actions: [...acts] }))
         if (controller.signal.aborted) break
         setStreamingText(null)
         if (checkpoint && checkpoint.length > 0) {
@@ -1758,11 +2016,27 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
           setCanRollback(true)
         }
         lastStepRanCommands = feedback.length > 0
+        if (readBodies?.length) pendingReadBodies.push(...readBodies)
+
+        // done_reason 'length' / finishReason MAX_TOKENS = the output
+        // cap cut the reply off mid-turn, not a deliberate stop. The
+        // loop hands the model another step below; this flag also tells
+        // malformed-block feedback to steer it toward smaller output.
+        const truncatedByLimit = usage?.doneReason === 'length'
+        agentState.lastTurnTruncated = truncatedByLimit
 
         const finalText = display || getStreamed()
+        const stepActions = truncatedByLimit
+          ? [...(actions ?? []), {
+              kind: 'notice' as const,
+              label: i18nService.t('Reply cut off at the token limit - asking the model to continue'),
+              target: '',
+              status: 'ok' as const,
+            }]
+          : actions
         updateStep({
           content: finalText || stepMsg.content,
-          actions: actions && actions.length > 0 ? actions : undefined,
+          actions: stepActions && stepActions.length > 0 ? stepActions : undefined,
         })
 
         historyForRequest.push({ role: 'assistant', content: response, timestamp: Date.now() })
@@ -1771,6 +2045,18 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         // declared completion while an earlier command/edit failure is still
         // unresolved, give it one chance to fix or explicitly justify it.
         if (!needsContinuation) {
+          if (truncatedByLimit) {
+            // The output cap cut the reply off mid-turn - the model
+            // never chose to stop, so this is not a completion. Hand it
+            // another step to finish the thought, in smaller pieces so
+            // the same limit is not hit again.
+            currentInput =
+              `Your last reply was cut off by the output token limit mid-turn. ` +
+              `Continue exactly where you stopped - keep this turn SHORT: minimal ` +
+              `prose, and emit file content in small pieces (a few EDIT_FILE ` +
+              `blocks, or a short WRITE_FILE part appended with EDIT_FILE).`
+            continue
+          }
           if ((agentState.unresolvedFailure || agentState.unresolvedEdit) && !failureNudged) {
             failureNudged = true
             const last = agentState.lastRunFailure
@@ -1792,13 +2078,19 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
           // failed was still never retried. The nudge above already gave it
           // a chance to respond; if it now claims success, surface the
           // discrepancy to the user instead of trusting the claim.
-          if (failureNudged && agentState.unresolvedEdit) {
-            setMessages((prev) => [...prev, {
-              role: 'assistant',
-              content: `⚠️ ${i18nService.t('A file edit failed and was never retried - the reported changes may not exist on disk. Please verify the file.')}`,
-              timestamp: Date.now(),
-              isError: true,
-            }])
+          if (failureNudged) warnUnresolvedEdit()
+          // A step that ran commands left only note lines visible - ask
+          // once for a closing answer. It goes through the normal loop
+          // (not a one-shot call) so a model that emits commands or
+          // defers here gets results fed back like any other step
+          // instead of ending the run mid-task.
+          if (lastStepRanCommands && !summaryAsked) {
+            summaryAsked = true
+            currentInput =
+              `The file operations completed. Reply to the user with a brief summary ` +
+              `of what you did, in the same language as the user's request. ` +
+              `Do not emit any file commands.`
+            continue
           }
           break
         }
@@ -1817,45 +2109,40 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
           (agentState.unresolvedEdit
             ? `Reminder: an earlier EDIT_FILE/WRITE_FILE failed and no file change has succeeded since - the target file is still UNCHANGED on disk. Re-emit the change now (EDIT_FILE with an exact SEARCH block, or WRITE_FILE with the full file content) before continuing.\n\n`
             : '') +
-          `(Step ${step + 1} of ${MAX_STEPS}) ` +
+          `(Step ${Math.min(step + 1, MAX_STEPS)} of ${MAX_STEPS}) ` +
           `Continue with the user's request. If the work is already done, ` +
           `reply with the final answer only - no file commands.`
       }
 
-      // If the last step executed commands (e.g. writes), the visible reply is
-      // only command notes like "Wrote file: ..." - ask the model for a
-      // closing answer addressed to the user.
-      if (lastStepRanCommands && !controller.signal.aborted) {
-        const summaryInput =
-          `The file operations completed. Reply to the user with a brief summary ` +
-          `of what you did, in the same language as the user's request. ` +
-          `Do not emit any file commands.`
-        historyForRequest.push({ role: 'user', content: summaryInput, timestamp: Date.now() })
-        const { onDelta: onSummaryDelta, getStreamed: getSummaryStreamed } = makeStreamHandler()
-        const summaryStart = performance.now()
-        let summaryUsage: Message['tokens']
-        const summary = await sendAgent(summaryInput, onSummaryDelta, (u) => { summaryUsage = u })
-        const summaryLatencyMs = Math.round(performance.now() - summaryStart)
-        // The summary is the run's last turn - its needsContinuation is
-        // ignored, so the code-shown nudge would only emit a misleading
-        // "asking the model to retry" note. Pre-set the one-shot flag.
-        const { display: summaryDisplay, actions: summaryActions } = await parseAndExecuteFileCommands(summary, requestApproval, requestCommandApproval, runCommandAndWait, userMessage.content, requestProject, { ...agentState, codeShownNudged: true })
-        if (controller.signal.aborted) return
-        setStreamingText(null)
-        const summaryText = summaryDisplay || getSummaryStreamed()
-        if (summaryText) {
-          setMessages((prev) => [...prev, {
-            role: 'assistant',
-            content: summaryText,
-            timestamp: Date.now(),
-            latencyMs: summaryLatencyMs,
-            model: runLabel || undefined,
-            tokens: summaryUsage,
-            rawContent: summary,
-            actions: summaryActions && summaryActions.length > 0 ? summaryActions : undefined,
-          }])
+      // The step budget ran out mid-work, before the in-loop summary
+      // turn was reached - still give the model one wrap-up reply so the
+      // user gets an answer instead of a bare trail of command notes.
+      if (!controller.signal.aborted && lastStepRanCommands && !summaryAsked) {
+        summaryAsked = true
+        try {
+          const { onDelta } = makeStreamHandler()
+          const summary = await sendAgent(
+            `The file operations completed. Reply to the user with a brief summary ` +
+            `of what you did, in the same language as the user's request. ` +
+            `Do not emit any file commands.`,
+            onDelta, () => {})
+          const text = summary.trim()
+          if (text) {
+            setMessages((prev) => [...prev, {
+              role: 'assistant',
+              content: text,
+              timestamp: Date.now(),
+              model: runLabel || undefined,
+            }])
+          }
+        } catch {
+          // The closing summary is best-effort - the work results stand.
         }
       }
+      // Whatever ended the run - budget exhaustion, cancellation, a
+      // clean finish - a write/edit that failed and was never retried
+      // leaves the file silently unmodified. Warn once.
+      warnUnresolvedEdit()
 
       // Compact older history into the rolling summary - keeps model
       // input bounded on long chats (fire-and-forget, Settings-gated).
@@ -1872,6 +2159,17 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
           content: `${i18nService.t('Error')}: ${error instanceof Error ? error.message : i18nService.t('Failed to get response')}`,
           timestamp: Date.now(),
           isError: true,
+        }
+        // An empty Ollama reply with the prompt already near num_ctx is
+        // a saturated context window, not a model failure - say so, and
+        // offer a session-only num_ctx raise as the one-click recovery.
+        if (error instanceof OllamaEmptyResponseError && lastUsage?.input != null) {
+          const numCtx = configService.getOllamaNumCtx() ?? 4096
+          const pct = Math.round((lastUsage.input / numCtx) * 100)
+          if (pct >= 70) {
+            errorMessage.content += `\n\n${i18nService.t('The request used about {pct}% of the model\'s {ctx}-token context window, so it may be saturated. Starting a new chat - or raising num_ctx - can help.').replace('{pct}', String(pct)).replace('{ctx}', String(numCtx))}`
+            errorMessage.canRaiseNumCtx = numCtx * 2
+          }
         }
         setMessages((prev) => [...prev, errorMessage])
       } else if (streamedRef.current) {
@@ -2132,6 +2430,15 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
                     title={t('Regenerate response')}
                   >
                     ↻
+                  </button>
+                )}
+                {item.m.canRaiseNumCtx != null && !isLoading && (
+                  <button
+                    className="retry-button"
+                    onClick={() => void handleRaiseNumCtx(item.m.canRaiseNumCtx!)}
+                    title={t('Raise num_ctx for this session and retry')}
+                  >
+                    {t('num_ctx {n}').replace('{n}', String(item.m.canRaiseNumCtx))} ↻
                   </button>
                 )}
               </div>

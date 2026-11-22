@@ -445,5 +445,13 @@
   "Invalid conversation id": "会話IDが無効です",
   "Invalid payload": "ペイロードが無効です",
   "Invalid language code": "言語コードが無効です",
-  "Invalid theme": "テーマが無効です"
+  "Invalid theme": "テーマが無効です",
+  "Reply cut off at the token limit - asking the model to continue": "トークン上限で応答が途切れました - 続きを要求します",
+  "Large block - asking the model to split future work": "大きなブロック - 次回は分割するよう促します",
+  "Write blocked - result much smaller": "書き込みをブロック - 内容が大幅に小さくなります",
+  "Edit blocked - result much smaller": "編集をブロック - 内容が大幅に小さくなります",
+  "This edit drastically shrinks the file": "この編集はファイルを大幅に縮小します",
+  "The request used about {pct}% of the model's {ctx}-token context window, so it may be saturated. Starting a new chat - or raising num_ctx - can help.": "リクエストがモデルの {ctx} トークンのコンテキストの約 {pct}% を使用したため、飽和している可能性があります。新しいチャットを始めるか、num_ctx を増やすと改善する場合があります。",
+  "Raise num_ctx for this session and retry": "このセッションの num_ctx を増やして再試行",
+  "num_ctx {n}": "num_ctx {n}"
 }

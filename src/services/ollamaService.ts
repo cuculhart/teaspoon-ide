@@ -203,17 +203,28 @@ class OllamaService {
       throw new Error(`${i18nService.t('Ollama error')} ${res.status}: ${body.slice(0, 300) || res.statusText}`)
     }
 
+    // done_reason travels with the token counts: 'stop' = the model
+    // ended its turn, 'length' = the token/context limit cut it off.
+    // The agent loop treats a 'length' reply as forcibly truncated and
+    // lets the model continue instead of ending the run mid-sentence.
     const emitUsage = (d: any) => {
       if (!onUsage || !d) return
       const input = typeof d.prompt_eval_count === 'number' ? d.prompt_eval_count : undefined
       const output = typeof d.eval_count === 'number' ? d.eval_count : undefined
-      if (input !== undefined || output !== undefined) onUsage({ input, output })
+      const doneReason = typeof d.done_reason === 'string' ? d.done_reason : undefined
+      if (input !== undefined || output !== undefined || doneReason !== undefined) {
+        onUsage({ input, output, doneReason })
+      }
     }
 
     if (!onDelta || !res.body) {
       const data = await res.json()
       const text = data?.message?.content
       if (typeof text !== 'string' || !text) {
+        // Report the counts even on an empty reply - the agent loop's
+        // context-saturation check needs the prompt size to explain WHY
+        // the reply came back empty.
+        emitUsage(data)
         const thinking = data?.message?.thinking
         throw new OllamaEmptyResponseError(
           typeof thinking === 'string' && thinking.length > 0 && CHANNEL_ROUTED_RE.test(model),

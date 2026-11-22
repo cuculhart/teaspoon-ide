@@ -31,10 +31,15 @@ export interface ModelInfo {
 // (Gemini usageMetadata, Ollama prompt_eval_count/eval_count). Absent
 // fields mean the provider did not report that direction. `cached` is
 // the implicit context-cache hit portion of `input` (Gemini only).
+// `doneReason` is the generation stop cause (Ollama done_reason:
+// 'stop'/'length'; Gemini finishReason: 'stop'/'length' normalized) -
+// 'length' means the reply was cut off by the token/context limit, not
+// by the model's choice.
 export interface TokenUsage {
   input?: number
   output?: number
   cached?: number
+  doneReason?: string
 }
 
 export interface SendArgs {

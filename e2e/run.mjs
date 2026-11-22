@@ -49,10 +49,10 @@ async function waitForServer(timeoutMs = 60000) {
   throw new Error(`vite dev server not ready at ${BASE}`)
 }
 
-const geminiReply = (text) => JSON.stringify({
+const geminiReply = (text, finishReason = 'STOP') => JSON.stringify({
   candidates: [{
     content: { role: 'model', parts: [{ text }] },
-    finishReason: 'STOP',
+    finishReason,
     index: 0,
   }],
   usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10, totalTokenCount: 20 },
@@ -82,9 +82,14 @@ function startMockServer() {
           return
         }
         mockState.captured.push(body)
-        const text = mockState.replies.length ? mockState.replies.shift() : 'E2E_DONE'
+        // Replies may be plain strings or { text, finishReason } objects
+        // (finishReason 'MAX_TOKENS' exercises the truncation path).
+        const item = mockState.replies.length ? mockState.replies.shift() : 'E2E_DONE'
+        const { text, finishReason } = typeof item === 'string'
+          ? { text: item, finishReason: 'STOP' }
+          : item
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(geminiReply(text))
+        res.end(geminiReply(text, finishReason))
       }
       if (mockState.delayMs) setTimeout(respond, mockState.delayMs)
       else respond()
@@ -153,7 +158,18 @@ async function launchApp({ profileDir, focus = false }) {
     localStorage.removeItem('last_no_project_conv')
     localStorage.setItem('chat_focus', focus ? '1' : '0')
   }, { focus, proxyUrl: `http://127.0.0.1:${mockPort}` })
-  await page.reload()
+  // Vite's cold-start dependency re-optimization can force a full page
+  // reload that aborts THIS reload with ERR_ABORTED - retry briefly, then
+  // the quiet-navigation wait below gates the test on a stable page.
+  for (let i = 0; i < 5; i++) {
+    try {
+      await page.reload()
+      break
+    } catch (e) {
+      if (i === 4) throw e
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+  }
   // Vite can force a full page reload shortly after connect (dependency
   // re-optimization, ws reconnect) - a navigation mid-test destroys the
   // execution context, so wait until the page has been quiet for a bit
@@ -593,6 +609,80 @@ test('R-1  dedup "unchanged" reply is backed by the retained payload', async () 
       texts.slice(0, -1).some((t) => t.includes(payload)),
       'dedup claimed "use what you have" but the payload is gone from history',
     )
+  } finally { await app.close() }
+})
+
+// S-1 (v1.8.1 backport from LE): the closing-summary turn must run inside
+// the agent loop. Observed on a small model: step 1 writes index.html, the
+// summary turn writes style.css AND asks "script.js の作成に取り掛かり
+// ましょうか？" - under the old one-shot summary call that deferral was
+// dropped and the run ended with script.js never written. The summary
+// turn must continue like any other step until the work is done.
+test('S-1  deferral in the summary turn keeps the run going', async () => {
+  const tmp = mkTmp('tsp-s1-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// WRITE_FILE: index.html\n<h1>hi</h1>\n// END_WRITE_FILE',
+      '// WRITE_FILE: style.css\nbody{color:red}\n// END_WRITE_FILE\n\n次に script.js の作成に取り掛かりましょうか？',
+      '// WRITE_FILE: script.js\nconsole.log(1)\n// END_WRITE_FILE\n\nすべて完了しました。S1_DONE',
+    ], reqs)
+    await sendChat(page, 'create the files')
+    // The mock replies instantly, so the next approval dialog can mount
+    // before a detached-wait notices the previous one closing. Poll:
+    // approve any open dialog until the last file exists.
+    const deadline = Date.now() + 90000
+    while (!fs.existsSync(path.join(proj, 'script.js')) && Date.now() < deadline) {
+      if (await page.locator('.file-edit-approval').count() > 0) {
+        await page.click('.approve-button')
+      }
+      await page.waitForTimeout(300)
+    }
+    assert.ok(fs.existsSync(path.join(proj, 'script.js')),
+      'run ended before script.js was written - summary-turn deferral dropped')
+    await waitForMarker(page, 'S1_DONE')
+    assert.strictEqual(reqs.length, 3, `expected 3 LLM calls, got ${reqs.length}`)
+    // The closing-summary prompt must go through the loop (call 2), and the
+    // deferral feedback must go back to the model (call 3's history).
+    assert.ok(reqs[1].includes('file operations completed'),
+      'summary prompt was not sent in-loop')
+    assert.ok(reqs[2].includes('continue NOW'),
+      'deferral feedback was not fed back to the model')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('Deferred to a later response'),
+      'work-offer deferral was not flagged:\n' + msgs)
+  } finally { await app.close() }
+})
+
+// S-2 (v1.8.1 backport from LE): a reply cut off by the output token
+// limit (finishReason MAX_TOKENS / Ollama done_reason 'length') must
+// not end the run - the model never chose to stop. The loop should
+// flag the truncation on the step card and hand it another step with
+// a keep-it-small continuation prompt.
+test('S-2  token-limit truncation continues the run', async () => {
+  const tmp = mkTmp('tsp-s2-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      { text: 'ここから実装を進めます。まず', finishReason: 'MAX_TOKENS' },
+      'S2_DONE',
+    ], reqs)
+    await sendChat(page, 'implement the feature')
+    await waitForMarker(page, 'S2_DONE')
+    assert.strictEqual(reqs.length, 2, `expected 2 LLM calls, got ${reqs.length}`)
+    assert.ok(reqs[1].includes('cut off by the output token limit'),
+      'truncated reply was not fed a continue-in-smaller-pieces prompt')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('Reply cut off at the token limit'),
+      'truncation notice missing from the step card:\n' + msgs)
   } finally { await app.close() }
 })
 

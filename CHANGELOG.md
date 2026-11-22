@@ -5,7 +5,61 @@ All notable changes to Teaspoon IDE are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.1] - 2026-11-22
+
+### Changed
+
+- The agent prompt now instructs the model to split large work into
+  small pieces (a short WRITE_FILE part appended with EDIT_FILE, or
+  several small SEARCH/REPLACE pairs), and a syntactically valid
+  write/edit block over ~80 lines earns a next-time-split advisory
+  rather than being rejected.
+- If the step budget is exhausted after commands ran, the model still
+  gets one closing-summary reply so the user receives an answer rather
+  than a bare trail of command notes.
+
+### Fixed
+
+- The closing-summary turn now runs inside the agent loop instead of as a
+  post-loop one-shot call. Small models that emit one file per turn often
+  use the summary turn to write the next file and ask "shall I continue?"
+  - under the old call that continuation request was ignored, ending the
+  run with work unfinished. The summary turn now gets its commands
+  executed and its deferral fed back like any other step (backported
+  from the Local Edition).
+- Deferral detection now catches polite work-offer endings that announce
+  the next unit of work and wait for confirmation: Japanese "...-mashou
+  ka?" / "...-shimasu. yoroshii deshou ka?" phrasings, and the English
+  "shall we implement/create/write/...". Previously only explicit
+  "continue in the next response" phrasings were detected, so runs ended
+  mid-task. Declarative next-work announcements ("Next I will implement
+  X", and the Japanese equivalents with "next/remaining" markers) defer
+  the same way without asking a question and are now caught too.
+- Replies cut off by the output token limit no longer end the run
+  silently. Ollama's done_reason 'length' and Gemini's finishReason
+  MAX_TOKENS are now carried through the token-usage report; a truncated
+  reply gets a "Reply cut off at the token limit" step notice and the
+  model is asked to continue where it stopped, in smaller pieces.
+- Empty Ollama replies near the context window limit are now explained
+  instead of shown as a bare error: the error message reports the
+  percentage of num_ctx the request used, and offers a one-click
+  "raise num_ctx and retry" that applies for the current session only
+  (a permanent change still goes through Settings). Usage counts are
+  now captured even on the empty-reply path so the diagnosis works.
+- Write/edit results that shrink a non-trivial file to under half its
+  size are now blocked once as a probable truncated fragment, with
+  feedback asking the model to split the change into smaller pieces;
+  a deliberate re-send goes through and the approval dialog shows a
+  "drastically shrinks the file" badge on such edits.
+- Model-bound history no longer accumulates full file bodies: older
+  WRITE_FILE/EDIT_FILE contents in the prompt are reduced to their
+  marker lines (the files are on disk), and when an Ollama run's input
+  approaches the context window, earlier READ_FILE results are swapped
+  for "on disk" placeholders as well. A re-read after elision sends the
+  full content again instead of the misleading "unchanged" shortcut.
+- A file edit that failed and was never retried now warns the user at
+  the end of the run whichever path ended it - the warning previously
+  only fired on the unresolved-work nudge path.
 
 ## [1.8.0] - 2026-11-21
 
@@ -95,7 +149,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   placement freedom.
 - The "code shown but not written" retry no longer fires on how-to
   questions. Asking "how is the portable exe created" matched the
-  creation-intent regex (作成/create/...) and a correctly fenced
+  creation-intent regex (Japanese and English verbs like "create") and
+  a correctly fenced
   `npm run package` example was flagged as a missed file write - the
   agent loop then burned whole turns re-asking for an answer the model
   was already giving. Questions phrased as method/documentation lookups

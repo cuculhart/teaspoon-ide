@@ -49,9 +49,16 @@ export function extractStreamDelta(chunk: any): string {
 // usageMetadata rides the final stream chunk (and every non-streamed
 // response). thoughtsTokenCount is billed output and folded into
 // `output`; cachedContentTokenCount reports implicit-context-cache hits.
-export function extractUsage(json: any): { input?: number; output?: number; cached?: number } | undefined {
+// candidates[0].finishReason is normalized onto Ollama's done_reason
+// vocabulary: 'MAX_TOKENS' -> 'length' means the output cap cut the
+// reply off mid-thought.
+export function extractUsage(json: any): { input?: number; output?: number; cached?: number; doneReason?: string } | undefined {
   const u = json?.usageMetadata
-  if (!u) return undefined
+  const reason = json?.candidates?.[0]?.finishReason
+  const doneReason = typeof reason === 'string'
+    ? (reason === 'MAX_TOKENS' ? 'length' : reason === 'STOP' ? 'stop' : reason.toLowerCase())
+    : undefined
+  if (!u) return doneReason ? { doneReason } : undefined
   const input = typeof u.promptTokenCount === 'number' ? u.promptTokenCount : undefined
   const output =
     (typeof u.candidatesTokenCount === 'number' ? u.candidatesTokenCount : 0) +
@@ -59,7 +66,7 @@ export function extractUsage(json: any): { input?: number; output?: number; cach
   const cached = typeof u.cachedContentTokenCount === 'number' && u.cachedContentTokenCount > 0
     ? u.cachedContentTokenCount
     : undefined
-  return { input, output: output || undefined, cached }
+  return { input, output: output || undefined, cached, doneReason }
 }
 
 // google.rpc.RetryInfo in a 429/503 error body: details[] entries carry
