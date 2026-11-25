@@ -5,6 +5,7 @@ import {
   AGENT_SYSTEM_PROMPT,
   AGENT_SYSTEM_PROMPT_COMPACT,
   NO_PROJECT_SYSTEM_PROMPT,
+  ASK_MODE_NOTE,
   hostOsName,
   hostOpenCommand,
 } from './agentPrompt'
@@ -148,8 +149,9 @@ class OllamaService {
       ? `The app runs on ${hostOsName()}. To open a file/URL in the browser, emit "// RUN_COMMAND: ${hostOpenCommand()} <target>".`
       : `The app runs on ${hostOsName()}.`
 
+    const askMode = configService.getChatMode() === 'ask'
     const messages: Array<{ role: string; content: string }> = [
-      { role: 'system', content: `${systemPrompt.trim()}\n\n${osNote}` },
+      { role: 'system', content: `${systemPrompt.trim()}\n\n${osNote}${askMode ? ASK_MODE_NOTE : ''}` },
     ]
 
     for (const msg of caps.historyWindow ? history.slice(-caps.historyWindow) : history) {

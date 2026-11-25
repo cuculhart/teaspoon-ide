@@ -1,6 +1,6 @@
 import { configService } from './configService'
 import { i18nService } from './i18nService'
-import { APP_CONTEXT_PROMPT, AGENT_INSTRUCTIONS, NO_PROJECT_INSTRUCTIONS, hostOsName, hostOpenCommand } from './agentPrompt'
+import { APP_CONTEXT_PROMPT, AGENT_INSTRUCTIONS, NO_PROJECT_INSTRUCTIONS, ASK_MODE_NOTE, hostOsName, hostOpenCommand } from './agentPrompt'
 import { projectService } from './projectService'
 import { extractResponseText, extractStreamDelta, extractUsage, generateContentPath, parseRetryDelaySeconds, streamGenerateContentPath } from './geminiRest'
 import type { ModelCaps, ModelInfo, TokenUsage } from './providers'
@@ -353,7 +353,8 @@ export class GeminiService {
       (projectOpen
         ? ` To open a file/URL in the browser, emit "// RUN_COMMAND: ${hostOpenCommand()} <target>".\n`
         : '\n') +
-      (projectOpen ? AGENT_INSTRUCTIONS : NO_PROJECT_INSTRUCTIONS)
+      (projectOpen ? AGENT_INSTRUCTIONS : NO_PROJECT_INSTRUCTIONS) +
+      (configService.getChatMode() === 'ask' ? ASK_MODE_NOTE : '')
 
     const prompt = context ? `Context:\n${context}\n\nUser message:\n${message}` : message
 

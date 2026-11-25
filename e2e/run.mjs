@@ -106,11 +106,57 @@ function startMockServer() {
 // Point the shared mock server at this test's reply queue / capture array.
 async function mockGemini(page, replies, captured, { delayMs = 0 } = {}) {
   mockState.replies = replies
-  mockState.captured = captured
+  // A test that does not care about request bodies may omit `captured` -
+  // the server still needs an array to push into.
+  mockState.captured = captured ?? []
   mockState.delayMs = delayMs
 }
 
-async function launchApp({ profileDir, focus = false }) {
+// One assistant message as Ollama's NDJSON stream: a content chunk then a
+// done:true terminator (eval counts mirror real responses). A reply may
+// also be {text, input, output, doneReason} to simulate an over-context
+// prompt or a truncated ('length') reply.
+const ollamaReply = (text, input = 10, output = 10, doneReason) =>
+  JSON.stringify({ message: { role: 'assistant', content: text }, done: false }) + '\n' +
+  JSON.stringify({ done: true, prompt_eval_count: input, eval_count: output, ...(doneReason ? { done_reason: doneReason } : {}) }) + '\n'
+
+// The num_ctx-dependent paths (over-context notice, elision) only exist
+// for the Ollama provider. Ollama calls are plain renderer fetches to
+// localhost:11434, so unlike the main-process Gemini relay they ARE
+// reachable by page.route - these intercepts mock the endpoint for
+// tests launched with { ollama: true }.
+async function installOllamaMock(page) {
+  await page.route('**/api/version', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ version: '0.0.0-e2e' }),
+    }))
+  await page.route('**/api/tags', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ models: [{ name: 'e2e-model' }] }),
+    }))
+  await page.route('**/api/chat', async (route) => {
+    const body = route.request().postData() || ''
+    mockState.captured?.push(body)
+    const entry = mockState.replies.length ? mockState.replies.shift() : 'E2E_DONE'
+    const text = typeof entry === 'string' ? entry : entry.text
+    const input = typeof entry === 'string' ? 10 : (entry.input ?? 10)
+    const output = typeof entry === 'string' ? 10 : (entry.output ?? 10)
+    const doneReason = typeof entry === 'string' ? undefined : entry.doneReason
+    const respond = () => route.fulfill({
+      status: 200,
+      contentType: 'application/x-ndjson',
+      body: ollamaReply(text, input, output, doneReason),
+    })
+    if (mockState.delayMs) setTimeout(respond, mockState.delayMs)
+    else await respond()
+  })
+}
+
+async function launchApp({ profileDir, focus = false, ollama = false, ollamaModel = 'e2e-model' }) {
   const args = [mainJs, `--user-data-dir=${profileDir}`]
   // This shell runs inside an Electron-based tool, so ELECTRON_RUN_AS_NODE
   // leaks into every child process and would launch the app as plain Node.
@@ -145,19 +191,30 @@ async function launchApp({ profileDir, focus = false }) {
   page.on('framenavigated', (f) => {
     if (f === page.mainFrame()) fs.appendFileSync(errLog, `[nav ${Date.now()}] ${f.url()}\n`)
   })
-  await page.addInitScript(({ focus, proxyUrl }) => {
-    // Both values are migrated into the main-process secret store on first
-    // load (configService.migrateLegacySecret): gemini_api_key becomes the
-    // relay credential, llm_proxy_url redirects it to the mock server.
-    localStorage.setItem('gemini_api_key', 'pw-e2e-key')
-    localStorage.setItem('llm_proxy_url', proxyUrl)
-    localStorage.setItem('llm_provider', 'gemini')
+  // Ollama-provider tests (num_ctx paths): install the renderer-fetch
+  // intercepts before the app's first real load - routes persist across
+  // the reload below.
+  if (ollama) await installOllamaMock(page)
+  await page.addInitScript(({ focus, proxyUrl, ollama, ollamaModel }) => {
+    if (ollama) {
+      localStorage.setItem('llm_provider', 'ollama')
+      localStorage.setItem('ollama_model', ollamaModel)
+      localStorage.setItem('ollama_num_ctx', '4096')
+    } else {
+      // Both values are migrated into the main-process secret store on
+      // first load (configService.migrateLegacySecret): gemini_api_key
+      // becomes the relay credential, llm_proxy_url redirects it to the
+      // mock server.
+      localStorage.setItem('gemini_api_key', 'pw-e2e-key')
+      localStorage.setItem('llm_proxy_url', proxyUrl)
+      localStorage.setItem('llm_provider', 'gemini')
+    }
     localStorage.setItem('language', 'en')
     localStorage.setItem('auto_summarize', '0')
     localStorage.removeItem('last_project_path')
     localStorage.removeItem('last_no_project_conv')
     localStorage.setItem('chat_focus', focus ? '1' : '0')
-  }, { focus, proxyUrl: `http://127.0.0.1:${mockPort}` })
+  }, { focus, proxyUrl: `http://127.0.0.1:${mockPort}`, ollama, ollamaModel })
   // Vite's cold-start dependency re-optimization can force a full page
   // reload that aborts THIS reload with ERR_ABORTED - retry briefly, then
   // the quiet-navigation wait below gates the test on a stable page.
@@ -683,6 +740,901 @@ test('S-2  token-limit truncation continues the run', async () => {
     const msgs = await messagesText(page)
     assert.ok(msgs.includes('Reply cut off at the token limit'),
       'truncation notice missing from the step card:\n' + msgs)
+  } finally { await app.close() }
+})
+
+// V-1 (v1.9.0 backport): a syntactically broken write is rolled back to
+// the file's previous content, and the model is told about the rollback.
+test('V-1  broken JS write is rolled back to previous content', async () => {
+  const tmp = mkTmp('tsp-v1-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const target = path.join(proj, 'app.js')
+  fs.writeFileSync(target, 'const ok = 1\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// WRITE_FILE: app.js\nconst broken = (\n// END_WRITE_FILE',
+      'V1_DONE',
+    ], reqs)
+    await sendChat(page, 'rewrite app.js')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    await page.click('.approve-button')
+    await waitForMarker(page, 'V1_DONE')
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'const ok = 1\n',
+      'syntactically broken write was left on disk')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('Syntax error'), 'no syntax-rollback notice:\n' + msgs)
+    assert.ok(reqs.some((r) => r.includes('rolled back')),
+      'model was not told the write was rolled back')
+  } finally { await app.close() }
+})
+
+// V-2 (v1.9.0 backport): two consecutive SEARCH misses on the same file
+// arm the re-read gate - further WRITE/EDIT to it is held until a
+// READ_FILE succeeds. The gated write must never reach the approval
+// dialog.
+test('V-2  two SEARCH misses hold writes until READ_FILE', async () => {
+  const tmp = mkTmp('tsp-v2-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const target = path.join(proj, 'f.js')
+  fs.writeFileSync(target, 'alpha\nbeta\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const badEdit = '// EDIT_FILE: f.js\n<<<<<<< SEARCH\nNOPE_NOT_THERE\n=======\nx\n>>>>>>> REPLACE\n// END_EDIT_FILE'
+    const reqs = []
+    await mockGemini(page, [
+      badEdit,                                    // SEARCH miss #1
+      badEdit,                                    // SEARCH miss #2 -> gate
+      '// WRITE_FILE: f.js\nhacked\n// END_WRITE_FILE',  // held (no dialog)
+      '// READ_FILE: f.js',                        // gate released
+      '// WRITE_FILE: f.js\nfixed\n// END_WRITE_FILE',   // reaches approval
+      'V2_DONE',
+    ], reqs)
+    await sendChat(page, 'edit f.js')
+    // The first approval dialog belongs to the LAST write - the held one
+    // must never have opened it.
+    await page.waitForSelector('.file-edit-approval', { timeout: 60000 })
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'alpha\nbeta\n',
+      'file was modified before the gated write was released')
+    await page.click('.approve-button')
+    await waitForMarker(page, 'V2_DONE')
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'fixed\n',
+      'post-read write did not apply')
+    assert.ok(reqs.some((r) => r.includes('held -')),
+      'gate feedback was not sent to the model')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('Held until the file is re-read'),
+      'no held-row in step card:\n' + msgs)
+  } finally { await app.close() }
+})
+
+// V-3 (v1.9.0 backport): checkpoints persist to userData/checkpoints, so
+// the rollback button still restores the file after an app restart.
+test('V-3  rollback works after restart (persistent checkpoints)', async () => {
+  const tmp = mkTmp('tsp-v3-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const target = path.join(proj, 'keep.js')
+  fs.writeFileSync(target, 'ORIGINAL_KEEP_CONTENT\n')
+  const profile = mkTmp('tsp-prof-')
+  const { app, page, userData } = await launchApp({ profileDir: profile })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// WRITE_FILE: keep.js\nCHANGED_CONTENT\n// END_WRITE_FILE',
+      'V3_DONE',
+    ], reqs)
+    await sendChat(page, 'change keep.js')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    await page.click('.approve-button')
+    await waitForMarker(page, 'V3_DONE')
+    assert.ok(fs.readFileSync(target, 'utf8').includes('CHANGED_CONTENT'),
+      'write did not land')
+    // The checkpoint file lands via a debounced save - poll for it.
+    const cpDir = path.join(userData, 'checkpoints')
+    const deadline = Date.now() + 10000
+    let cpFiles = []
+    while (Date.now() < deadline) {
+      cpFiles = fs.existsSync(cpDir) ? fs.readdirSync(cpDir).filter((n) => n.endsWith('.json')) : []
+      if (cpFiles.length > 0) break
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    assert.ok(cpFiles.length > 0, 'checkpoint file was not persisted')
+  } finally { await app.close() }
+
+  const { app: app2, page: page2 } = await launchApp({ profileDir: profile })
+  try {
+    await openProject(page2, proj)
+    // No model calls needed: the button must come back from disk alone.
+    await page2.waitForSelector('.rollback-button', { timeout: 30000 })
+    await page2.click('.rollback-button')
+    const deadline = Date.now() + 10000
+    while (Date.now() < deadline &&
+           fs.readFileSync(target, 'utf8') !== 'ORIGINAL_KEEP_CONTENT\n') {
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'ORIGINAL_KEEP_CONTENT\n',
+      'rollback after restart did not restore the file')
+  } finally { await app2.close() }
+})
+
+// V-4 (stagnation watchdog): a model that repeats the same reply
+// word-for-word while producing no file change is looping. First repeat
+// warns, second aborts the run with an explicit balloon - the run must
+// NOT silently continue or end in a fake "completion" summary.
+test('V-4  repeated no-progress replies abort the run', async () => {
+  const tmp = mkTmp('tsp-v4-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const target = path.join(proj, 'f.js')
+  fs.writeFileSync(target, 'alpha\nbeta\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    // Identical reply every step: a failing EDIT plus enough prose for
+    // the similarity check (>50 normalized chars).
+    const repeat =
+      'I have applied the fix. Everything should now work as expected.\n' +
+      '// EDIT_FILE: f.js\n<<<<<<< SEARCH\nNOPE_NOT_THERE\n=======\nx\n>>>>>>> REPLACE\n// END_EDIT_FILE'
+    const reqs = []
+    await mockGemini(page, [repeat, repeat, repeat, 'V4_DONE'], reqs)
+    await sendChat(page, 'fix f.js')
+    await waitForMarker(page, 'kept repeating the same reply')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('the model kept repeating the same reply without changing anything'),
+      'no stagnation abort balloon:\n' + msgs)
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'alpha\nbeta\n',
+      'file changed during a stagnant run')
+    // The watchdog warning must have been fed back to the model before
+    // the abort step.
+    assert.ok(reqs.some((r) => r.includes('repeated your previous reply')),
+      'watchdog warning was never sent to the model')
+    // Bounded cost: abort at the second repeat = at most 3 model calls
+    // (initial + two repeats), never the full step budget.
+    assert.ok(reqs.length <= 3, `expected <=3 model calls, got ${reqs.length}`)
+  } finally { await app.close() }
+})
+
+// V-5 (honest ending): a run where every write/edit fails must end with a
+// system balloon stating that nothing was applied - the model's own
+// "done" prose cannot stand as the only account of disk state.
+test('V-5  zero-change run ends with an explicit nothing-applied notice', async () => {
+  const tmp = mkTmp('tsp-v5-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const target = path.join(proj, 'f.js')
+  fs.writeFileSync(target, 'alpha\nbeta\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const badEdit = '// EDIT_FILE: f.js\n<<<<<<< SEARCH\nNOPE_NOT_THERE\n=======\nx\n>>>>>>> REPLACE\n// END_EDIT_FILE'
+    await mockGemini(page, [
+      badEdit,
+      'The fix is complete. Everything works as expected.',
+      'Yes, no problems.',
+      'V5_DONE',
+    ])
+    await sendChat(page, 'fix f.js')
+    await waitForMarker(page, 'No file change was applied')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('No file change was applied in this run'),
+      'no zero-change disclosure:\n' + msgs)
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'alpha\nbeta\n')
+  } finally { await app.close() }
+})
+
+// V-6 (num_ctx overflow notice): a prompt that already exceeds num_ctx
+// degrades the model silently - the step card must say so once. This
+// path is Ollama-only (num_ctx), so the test runs on the ollama mock.
+test('V-6  over-context prompt is flagged on the step card', async () => {
+  const tmp = mkTmp('tsp-v6-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-'), ollama: true })
+  try {
+    await openProject(page, proj)
+    // prompt_eval_count 9000 > test num_ctx 4096.
+    await mockGemini(page, [{ text: 'V6_DONE', input: 9000 }])
+    await sendChat(page, 'hello')
+    await waitForMarker(page, 'V6_DONE')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('Prompt larger than num_ctx'),
+      'no num_ctx overflow notice:\n' + msgs)
+  } finally { await app.close() }
+})
+
+// V-7 (user-scoped stop): when the user bounds the run ("step 1 only,
+// stop"), a reply ending with a permission question is a stop line -
+// the run must NOT auto-continue past it even though commands ran.
+test('V-7  permission question ends a user-scoped run', async () => {
+  const tmp = mkTmp('tsp-v7-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'f.js'), 'alpha\nbeta\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      // A command runs (feedback would normally force continuation) but
+      // the reply ends asking permission.
+      '// READ_FILE: f.js\n\nStep 1 is complete. Shall I proceed to the next step?',
+      'V7_DONE',
+    ], reqs)
+    await sendChat(page, 'implement step 1 only, then stop')
+    await waitForMarker(page, 'proceed to the next step')
+    // Give a continuation (if any) a moment to fire.
+    await new Promise((r) => setTimeout(r, 3000))
+    assert.strictEqual(reqs.length, 1,
+      `run continued past the user's stop boundary (${reqs.length} calls)`)
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes("Stopped at the model's question"), 'no boundary-stop notice:\n' + msgs)
+  } finally { await app.close() }
+})
+
+// V-8 (regression): the SAME permission-question reply must still
+// auto-continue when the user gave no scope boundary - the existing
+// "don't stall waiting for the user" behavior is unchanged.
+test('V-8  permission question without a scope still continues', async () => {
+  const tmp = mkTmp('tsp-v8-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'f.js'), 'alpha\nbeta\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// READ_FILE: f.js\n\nStep 1 is complete. Shall I proceed to the next step?',
+      'V8_DONE',
+    ], reqs)
+    await sendChat(page, 'make the whole game')
+    await waitForMarker(page, 'V8_DONE')
+    assert.ok(reqs.length >= 2, `run stalled at the question (${reqs.length} calls)`)
+  } finally { await app.close() }
+})
+
+// V-9 (v1.9.0 L10): the approval dialogs surface the model's prose from
+// the same turn - the modal hides the chat, so the stated intent must
+// travel with the dialog itself. Checked on both the file-edit and the
+// command approval dialogs.
+test('V-9  approval dialogs show the turn explanation', async () => {
+  const tmp = mkTmp('tsp-v9-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const target = path.join(proj, 'note.js')
+  fs.writeFileSync(target, 'const a = 1\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    await mockGemini(page, [
+      'Updating the initial value in this file. Fixing a magic number.\n' +
+        '// WRITE_FILE: note.js\nconst a = 2\n// END_WRITE_FILE',
+      'Next I will run echo to verify the change.\n' +
+        '// RUN_COMMAND: echo v9_ok',
+      'V9_DONE',
+    ])
+    await sendChat(page, 'update note.js')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    let note = await page.locator('.approval-model-note .note-text').innerText()
+    assert.ok(note.includes('magic number'),
+      'file approval dialog is missing the model note:\n' + note)
+    assert.ok(!note.includes('END_WRITE_FILE'),
+      'file body leaked into the approval note:\n' + note)
+    await page.click('.approve-button')
+    // The first dialog closes before the command dialog opens - wait for
+    // detach so we do not read the stale note from the file dialog.
+    await page.waitForSelector('.file-edit-approval', { state: 'detached', timeout: 30000 })
+    await page.waitForSelector('.file-edit-approval', { state: 'attached', timeout: 30000 })
+    note = await page.locator('.approval-model-note .note-text').innerText()
+    assert.ok(note.includes('verify the change'),
+      'command approval dialog is missing the model note:\n' + note)
+    await page.click('.approve-button')
+    await waitForMarker(page, 'V9_DONE')
+    assert.ok(fs.readFileSync(target, 'utf8').includes('a = 2'),
+      'approved write did not land')
+  } finally { await app.close() }
+})
+
+// V-10 (v1.9.0 L2b): a project plan file's open items are injected into
+// every agent turn - no READ_FILE round-trip needed for "where are we".
+// Done items collapse to a count so the digest stays small.
+test('V-10 plan digest is injected into every request', async () => {
+  const tmp = mkTmp('tsp-v10-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'develop-plan.md'),
+    '# Plan\n' +
+    '## Section A\n' +
+    '- [x] done item DONE_ITEM_SENTINEL_AAA\n' +
+    '## Section B\n' +
+    '- [ ] open item OPEN_ITEM_SENTINEL_BBB\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, ['V10_DONE'], reqs)
+    await sendChat(page, 'hello')
+    await waitForMarker(page, 'V10_DONE')
+    assert.ok(reqs[0].includes('[PLAN]'), `no plan digest in request:\n${reqs[0]}`)
+    assert.ok(reqs[0].includes('develop-plan.md'), 'plan file name missing from digest')
+    assert.ok(reqs[0].includes('OPEN_ITEM_SENTINEL_BBB'),
+      'open item missing from digest')
+    assert.ok(reqs[0].includes('1 of 2 items done'),
+      'done count missing from digest')
+    assert.ok(!reqs[0].includes('DONE_ITEM_SENTINEL_AAA'),
+      'completed item text leaked into the digest')
+  } finally { await app.close() }
+})
+
+// V-11 (v1.9.0 L2c): marking a plan item "- [x]" without any verified
+// file change it could map to is the "reported done, nothing on disk"
+// lie - the mark stays (user approved it) but the model gets a warning
+// and the step card shows it.
+test('V-11 unverified completion mark warns the model', async () => {
+  const tmp = mkTmp('tsp-v11-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const planPath = path.join(proj, 'develop-plan.md')
+  fs.writeFileSync(planPath, '# Plan\n- [ ] 1. fix script.js\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      // The plan file sits behind the re-read gate (V-15) - a READ is
+      // required before its first edit.
+      '// READ_FILE: develop-plan.md',
+      '// EDIT_FILE: develop-plan.md\n<<<<<<< SEARCH\n- [ ] 1. fix script.js\n=======\n- [x] 1. fix script.js\n>>>>>>> REPLACE\n// END_EDIT_FILE',
+      'V11_DONE',
+    ], reqs)
+    await sendChat(page, 'mark the plan item done')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    await page.click('.approve-button')
+    await waitForMarker(page, 'V11_DONE')
+    assert.ok(reqs.some((r) => r.includes('no verified file change')),
+      'model was not warned about the unverified mark')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('Completion mark without a verified change'),
+      'no step-card notice:\n' + msgs)
+    // The mark itself stays - the harness warns, it does not revert a
+    // change the user approved.
+    assert.ok(fs.readFileSync(planPath, 'utf8').includes('- [x]'),
+      'the completion mark was removed')
+  } finally { await app.close() }
+})
+
+// V-12 (v1.9.0 L2c): the same mark made in the SAME batch as a verified
+// change to the referenced file is legitimate - no warning.
+test('V-12 completion mark after a verified change does not warn', async () => {
+  const tmp = mkTmp('tsp-v12-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'develop-plan.md'), '# Plan\n- [ ] 1. fix script.js\n')
+  fs.writeFileSync(path.join(proj, 'script.js'), 'const a = 1\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// READ_FILE: develop-plan.md',
+      '// WRITE_FILE: script.js\nconst a = 2\n// END_WRITE_FILE\n' +
+      '// EDIT_FILE: develop-plan.md\n<<<<<<< SEARCH\n- [ ] 1. fix script.js\n=======\n- [x] 1. fix script.js\n>>>>>>> REPLACE\n// END_EDIT_FILE',
+      'V12_DONE',
+    ], reqs)
+    await sendChat(page, 'fix script.js and mark the plan item done')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    await page.click('.approve-button')
+    await waitForMarker(page, 'V12_DONE')
+    assert.ok(!reqs.some((r) => r.includes('no verified file change')),
+      'a verified completion mark was still warned')
+  } finally { await app.close() }
+})
+
+// V-13 (v1.9.0 L5): a plan phase that just completed gates the next one -
+// the user approves the transition, not the model. Approving lets the
+// run continue; the model is told the transition was approved.
+test('V-13 completed plan phase prompts for the transition', async () => {
+  const tmp = mkTmp('tsp-v13-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'develop-plan.md'),
+    '# Plan\n' +
+    '- [ ] 1. setup\n' +
+    '  - [ ] 1.1 sub task\n' +
+    '- [ ] 2. build\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// READ_FILE: develop-plan.md',
+      '// EDIT_FILE: develop-plan.md\n' +
+      '<<<<<<< SEARCH\n- [ ] 1. setup\n  - [ ] 1.1 sub task\n=======\n' +
+      '- [x] 1. setup\n  - [x] 1.1 sub task\n>>>>>>> REPLACE\n// END_EDIT_FILE\n' +
+      '// LIST_FILES: .',
+      'V13_DONE',
+    ], reqs)
+    await sendChat(page, 'finish phase 1 and continue')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    await page.click('.approve-button')
+    await page.waitForSelector('.process-approval', { timeout: 30000 })
+    const body = await page.locator('.process-approval .process-question').innerText()
+    assert.ok(body.includes('setup') && body.includes('build'),
+      'phase question missing phase names:\n' + body)
+    await page.click('.process-approval .approve-button')
+    await waitForMarker(page, 'V13_DONE')
+    assert.ok(reqs.some((r) => r.includes('approved proceeding to the next plan phase')),
+      'model was not told the transition was approved')
+  } finally { await app.close() }
+})
+
+// V-14 (v1.9.0 L5): the same file failing its edit three times in a row
+// is a stuck loop the model cannot break - the user decides. Choosing
+// "skip" bounces later writes to that path back to the model.
+test('V-14 repeated failures ask the user; skip blocks the path', async () => {
+  const tmp = mkTmp('tsp-v14-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const target = path.join(proj, 'f.js')
+  fs.writeFileSync(target, 'alpha\nbeta\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const badEdit = '// EDIT_FILE: f.js\n<<<<<<< SEARCH\nNOPE_NOT_THERE\n=======\nx\n>>>>>>> REPLACE\n// END_EDIT_FILE'
+    const reqs = []
+    await mockGemini(page, [
+      badEdit,                  // failure 1
+      badEdit,                  // failure 2 -> re-read gate arms
+      '// READ_FILE: f.js',     // gate release (fail streak survives)
+      badEdit,                  // failure 3 -> process prompt
+      '// WRITE_FILE: f.js\nhacked\n// END_WRITE_FILE', // skipped, no dialog
+      'V14_DONE',
+      'Acknowledged, skipping that item.',
+    ], reqs)
+    await sendChat(page, 'edit f.js')
+    await page.waitForSelector('.process-approval', { timeout: 60000 })
+    // "Skip this item" is the third option button.
+    await page.click('.process-approval .approval-actions button >> nth=3')
+    await waitForMarker(page, 'V14_DONE')
+    assert.ok(reqs.some((r) => r.includes('chose to SKIP')),
+      'model was not told the item was skipped')
+    assert.ok(reqs.some((r) => r.includes('chose to skip this item')),
+      'skipped path was not rejected')
+    // The skipped write never reached the file-approval dialog.
+    assert.strictEqual(await page.locator('.file-edit-approval').count(), 0,
+      'skipped write reached the approval dialog')
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'alpha\nbeta\n',
+      'skipped path was modified')
+  } finally { await app.close() }
+})
+
+// V-15 (v1.9.0 real-run fix): the digest gives the model a compressed
+// view of the plan file, not verbatim text - an EDIT to it without a
+// fresh READ is near-guaranteed to miss its SEARCH (observed on a real
+// run). The plan file is therefore held behind the re-read gate from
+// the start: the first edit attempt bounces with "read it first", a
+// READ_FILE releases the gate, and the next edit applies.
+test('V-15 plan file edit is held until READ_FILE', async () => {
+  const tmp = mkTmp('tsp-v15-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const planPath = path.join(proj, 'develop-plan.md')
+  fs.writeFileSync(planPath, '# Plan\n- [ ] 1. fix script.js\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const markDone =
+      '// EDIT_FILE: develop-plan.md\n<<<<<<< SEARCH\n- [ ] 1. fix script.js\n=======\n- [x] 1. fix script.js\n>>>>>>> REPLACE\n// END_EDIT_FILE'
+    const reqs = []
+    await mockGemini(page, [
+      markDone,                          // held - never reaches approval
+      '// READ_FILE: develop-plan.md',   // gate release
+      markDone,                          // now reaches the dialog
+      'V15_DONE',
+    ], reqs)
+    await sendChat(page, 'mark the plan item done')
+    // First approval dialog belongs to the post-READ edit attempt.
+    await page.waitForSelector('.file-edit-approval', { timeout: 60000 })
+    assert.strictEqual(fs.readFileSync(planPath, 'utf8'),
+      '# Plan\n- [ ] 1. fix script.js\n',
+      'plan file changed before the re-read gate released')
+    await page.click('.approve-button')
+    await waitForMarker(page, 'V15_DONE')
+    assert.ok(reqs.some((r) => r.includes('held -')),
+      'held feedback was not sent to the model')
+    assert.ok(fs.readFileSync(planPath, 'utf8').includes('- [x]'),
+      'post-read edit did not apply')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('Held until the file is re-read'),
+      'no held-row in step card:\n' + msgs)
+  } finally { await app.close() }
+})
+
+// V-16 (v1.9.0 real-run fix): a plan file without checkbox items cannot
+// be tracked - the digest says so and nudges the recommended format
+// instead of silently injecting nothing.
+test('V-16 checkbox-less plan injects a format hint', async () => {
+  const tmp = mkTmp('tsp-v16-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  // Numbered lines parse as trackable items, so the untrackable case is
+  // a purely-prose plan with no list items at all.
+  fs.writeFileSync(path.join(proj, 'develop-plan.md'),
+    '# Plan\nBuild the game as discussed in chat.\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, ['V16_DONE'], reqs)
+    await sendChat(page, 'hello')
+    await waitForMarker(page, 'V16_DONE')
+    assert.ok(reqs[0].includes('[PLAN]'), `no plan section in request:\n${reqs[0]}`)
+    // reqs are raw request bodies - " appears JSON-escaped as \".
+    const body = reqs[0].replace(/\\"/g, '"')
+    assert.ok(body.includes('no "- [ ]" checkbox items'),
+      'untrackable-format hint missing from digest:\n' + body.slice(0, 400))
+  } finally { await app.close() }
+})
+
+// V-17 (v1.9.0 real-run fix): an EDIT_FILE whose body contains no
+// SEARCH/REPLACE blocks at all is a full-rewrite intent funneled into
+// the wrong command - the feedback steers to WRITE_FILE immediately,
+// not after the generic two-failure threshold.
+test('V-17 SEARCH-less EDIT steers to WRITE_FILE at once', async () => {
+  const tmp = mkTmp('tsp-v17-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'f.js'), 'const a = 1\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// EDIT_FILE: f.js\nconst a = 2\n// END_EDIT_FILE',  // no SEARCH blocks
+      'V17_DONE',
+    ], reqs)
+    await sendChat(page, 'rewrite f.js')
+    // SEARCH-less EDIT_FILE errors before approval - no dialog appears;
+    // the failure feedback goes straight into the next request.
+    await waitForMarker(page, 'V17_DONE')
+    assert.ok(reqs.some((r) => r.includes('rewrite the WHOLE file')),
+      'no immediate WRITE_FILE steer for a SEARCH-less EDIT_FILE')
+  } finally { await app.close() }
+})
+
+// V-18 (v1.9.0 real-run fix): a WRITE_FILE truncated at the token limit
+// parses as nothing - it never reached the file, but it IS a failed
+// attempt on that path. Counting it toward the repeated-failure gate
+// stops the "resend the same oversized block" loop by escalating to
+// the user.
+test('V-18 truncated writes count toward the failure gate', async () => {
+  const tmp = mkTmp('tsp-v18-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const target = path.join(proj, 'f.js')
+  fs.writeFileSync(target, 'const a = 1\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    // A dangling opener with no terminator - the shape a token-limit
+    // cut actually leaves behind.
+    const truncated = '// WRITE_FILE: f.js\nconst a = 2\nconst b = 3\n'
+    const reqs = []
+    await mockGemini(page, [truncated, truncated, truncated, 'V18_DONE'], reqs)
+    await sendChat(page, 'rewrite f.js')
+    await page.waitForSelector('.process-approval', { timeout: 60000 })
+    await page.click('.process-approval .approval-actions button >> nth=3')
+    await waitForMarker(page, 'V18_DONE')
+    assert.ok(reqs.some((r) => r.includes('chose to SKIP')),
+      'model was not told the item was skipped')
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'const a = 1\n',
+      'a truncated write reached the file')
+  } finally { await app.close() }
+})
+
+// V-19 (v1.9.0 real-run fix): a model that applies verified changes but
+// never flips the plan's checkboxes gets a standing reminder inside the
+// digest until the marks move.
+test('V-19 digest reminds to mark verified items', async () => {
+  const tmp = mkTmp('tsp-v19-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'develop-plan.md'), '# Plan\n- [ ] 1. change f.js\n')
+  fs.writeFileSync(path.join(proj, 'f.js'), 'const a = 1\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// WRITE_FILE: f.js\nconst a = 2\n// END_WRITE_FILE',
+      'V19_DONE',
+    ], reqs)
+    await sendChat(page, 'change f.js')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    await page.click('.approve-button')
+    await waitForMarker(page, 'V19_DONE')
+    const body = reqs[1].replace(/\\"/g, '"')
+    assert.ok(body.includes('mark the matching items "- [x]"'),
+      'verified-change reminder missing from digest:\n' + body.slice(0, 400))
+  } finally { await app.close() }
+})
+
+// V-20 (ask mode): with chat_mode=ask a WRITE_FILE never reaches the
+// approval dialog or the disk - it is blocked before either, the step
+// card says so, and the reply offers the code-mode retry button.
+test('V-20 ask mode blocks WRITE_FILE before approval and disk', async () => {
+  const tmp = mkTmp('tsp-v20-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    await page.evaluate(() => localStorage.setItem('chat_mode', 'ask'))
+    await mockGemini(page, [
+      '// WRITE_FILE: new.js\nconst x = 1\n// END_WRITE_FILE',
+      'V20_DONE',
+    ])
+    await sendChat(page, 'create new.js')
+    await waitForMarker(page, 'V20_DONE')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('Blocked (ask mode)'), 'no ask-mode block notice:\n' + msgs)
+    assert.ok(!fs.existsSync(path.join(proj, 'new.js')), 'write reached disk in ask mode')
+    assert.strictEqual(await page.locator('.file-edit-approval').count(), 0,
+      'approval dialog appeared in ask mode')
+    assert.strictEqual(await page.locator('.retry-code-mode-button').count(), 1,
+      'no retry-in-code-mode button')
+  } finally { await app.close() }
+})
+
+// V-21 (ask mode recovery): the "Retry in code mode" button resends the
+// same user message in agent mode - the same WRITE_FILE then reaches
+// the approval dialog and lands on disk after approval.
+test('V-21 retry-in-code-mode resends the message in agent mode', async () => {
+  const tmp = mkTmp('tsp-v21-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    await page.evaluate(() => localStorage.setItem('chat_mode', 'ask'))
+    await mockGemini(page, [
+      '// WRITE_FILE: new.js\nconst x = 1\n// END_WRITE_FILE',
+      'Blocked, as expected.',
+      '// WRITE_FILE: new.js\nconst x = 1\n// END_WRITE_FILE',
+      'V21_DONE',
+    ])
+    await sendChat(page, 'create new.js')
+    await page.waitForSelector('.retry-code-mode-button', { timeout: 45000 })
+    await page.click('.retry-code-mode-button')
+    await page.waitForSelector('.file-edit-approval', { timeout: 45000 })
+    await page.click('.approve-button')
+    await waitForMarker(page, 'V21_DONE')
+    assert.strictEqual(fs.readFileSync(path.join(proj, 'new.js'), 'utf8'), 'const x = 1\n',
+      'approved write did not reach disk after mode switch')
+    assert.strictEqual(await page.evaluate(() => localStorage.getItem('chat_mode')), 'agent',
+      'chat_mode was not switched to agent')
+  } finally { await app.close() }
+})
+
+// V-22 (context exhaustion): a 'length' cut with prompt+reply already
+// at the num_ctx ceiling cannot recover by continuing - the next
+// prompt is strictly larger. The run must stop once and offer the
+// num_ctx raise button instead of churning truncated replies.
+test('V-22 length cut at a saturated window stops the run', async () => {
+  const tmp = mkTmp('tsp-v22-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-'), ollama: true })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      // num_ctx is 4096 in the e2e profile: 3000 + 1200 >= 95%.
+      { text: '// WRITE_FILE: f.js\nconst x = 1', input: 3000, output: 1200, doneReason: 'length' },
+      'V22_DONE',
+    ], reqs)
+    await sendChat(page, 'create f.js')
+    await waitForMarker(page, 'context window is full')
+    // Give a continuation (if any) a moment to fire - none may.
+    await new Promise((r) => setTimeout(r, 3000))
+    assert.strictEqual(reqs.length, 1,
+      `run continued past context exhaustion (${reqs.length} calls)`)
+    // The raise button is labelled with the target ctx (4096*2 = 8192
+    // for the e2e-model, which has no guide entry).
+    assert.strictEqual(await page.locator('button:has-text("num_ctx 8192")').count(), 1,
+      'no num_ctx raise button after exhaustion')
+  } finally { await app.close() }
+})
+
+// V-23 (danger-zone warning): the prompt crossing ~80% of num_ctx is
+// the last point where a normal reply still fits - warn once before
+// the overflow notice ever gets a chance to fire.
+test('V-23 prompt at 80% of num_ctx shows the nearly-full warning', async () => {
+  const tmp = mkTmp('tsp-v23-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-'), ollama: true })
+  try {
+    await openProject(page, proj)
+    // 3400 >= 80% of 4096 but below the limit - no overflow notice.
+    await mockGemini(page, [{ text: 'V23_DONE', input: 3400 }])
+    await sendChat(page, 'hello')
+    await waitForMarker(page, 'V23_DONE')
+    const msgs = await messagesText(page)
+    assert.ok(msgs.includes('Context window nearly full'),
+      'no danger-zone warning:\n' + msgs)
+    assert.ok(!msgs.includes('Prompt larger than num_ctx'),
+      'overflow notice fired below the limit:\n' + msgs)
+  } finally { await app.close() }
+})
+
+// V-24 (proactive ctx guide): a known model running below its
+// recommended num_ctx gets a one-time notice with the raise button at
+// run start - the Settings guide alone is too easy to miss.
+test('V-24 model below recommended num_ctx is nudged once per session', async () => {
+  const tmp = mkTmp('tsp-v24-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-'), ollama: true, ollamaModel: 'gemma4:e4b' })
+  try {
+    await openProject(page, proj)
+    await mockGemini(page, ['V24_DONE', 'V24_DONE2'])
+    await sendChat(page, 'hello')
+    await waitForMarker(page, 'V24_DONE')
+    let msgs = await messagesText(page)
+    assert.ok(msgs.includes('16384 recommended'),
+      'no proactive ctx guide:\n' + msgs)
+    await sendChat(page, 'again')
+    await waitForMarker(page, 'V24_DONE2')
+    msgs = await messagesText(page)
+    assert.strictEqual(msgs.split('16384 recommended').length - 1, 1,
+      'ctx guide repeated on the second send')
+  } finally { await app.close() }
+})
+
+// V-25 (nested plan items gate): a just-checked sub-item ("- [ ] 4.1"
+// under "- [ ] 4.") is a boundary too - otherwise a fine-grained WBS
+// gets burned through in one run because the phase gate only sees
+// top-level items. The digest also names the first open leaf as the
+// current step so the rest of the list no longer reads as a work queue.
+test('V-25 nested plan item completion gates the next sub-item', async () => {
+  const tmp = mkTmp('tsp-v25-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'develop-plan.md'),
+    '# Plan\n' +
+    '- [x] 1. setup\n' +
+    '- [ ] 4. big task\n' +
+    '  - [ ] 4.1 sub one\n' +
+    '  - [ ] 4.2 sub two\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// READ_FILE: develop-plan.md',
+      '// EDIT_FILE: develop-plan.md\n' +
+      '<<<<<<< SEARCH\n  - [ ] 4.1 sub one\n=======\n' +
+      '  - [x] 4.1 sub one\n>>>>>>> REPLACE\n// END_EDIT_FILE\n' +
+      '// LIST_FILES: .',
+      'V25_DONE',
+    ], reqs)
+    await sendChat(page, 'finish 4.1 and continue')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    // The digest names the deepest first open item as the current step.
+    assert.ok(reqs[0]?.includes('Current step: \\"4.1 sub one\\"'),
+      'digest did not name the current step:\n' + reqs[0])
+    await page.click('.approve-button')
+    await page.waitForSelector('.process-approval', { timeout: 30000 })
+    const body = await page.locator('.process-approval .process-question').innerText()
+    assert.ok(body.includes('4.1 sub one') && body.includes('4.2 sub two'),
+      'gate question missing sub-item names:\n' + body)
+    await page.click('.process-approval .approve-button')
+    await waitForMarker(page, 'V25_DONE')
+  } finally { await app.close() }
+})
+
+// V-26 (checkbox + text edit in one): marking "- [x]" while ALSO
+// rewriting the item's own trailing fields ("status: open" -> "done")
+// changes the normalized text - plain text matching then never sees
+// the flip and the sub-item gate silently never fires (observed on a
+// real run where the WBS items carried progress fields). Match by the
+// item's leading number instead.
+test('V-26 sub-item gate survives a same-edit text change', async () => {
+  const tmp = mkTmp('tsp-v26-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'develop-plan.md'),
+    '# Plan\n' +
+    '- [x] 1. setup\n' +
+    '- [ ] 4. big task\n' +
+    '  - [ ] 4.1 sub one (status: open)\n' +
+    '  - [ ] 4.2 sub two (status: open)\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '// READ_FILE: develop-plan.md',
+      '// EDIT_FILE: develop-plan.md\n' +
+      '<<<<<<< SEARCH\n  - [ ] 4.1 sub one (status: open)\n=======\n' +
+      '  - [x] 4.1 sub one (status: done)\n>>>>>>> REPLACE\n// END_EDIT_FILE\n' +
+      '// LIST_FILES: .',
+      'V26_DONE',
+    ], reqs)
+    await sendChat(page, 'finish 4.1 and continue')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    await page.click('.approve-button')
+    await page.waitForSelector('.process-approval', { timeout: 30000 })
+    const body = await page.locator('.process-approval .process-question').innerText()
+    assert.ok(body.includes('4.1') && body.includes('4.2'),
+      'gate question missing sub-item names:\n' + body)
+    await page.click('.process-approval .approve-button')
+    await waitForMarker(page, 'V26_DONE')
+  } finally { await app.close() }
+})
+
+// V-27 (scoped deferral = boundary): "4.1だけ実装して" then the model
+// applies the write and ends with a declarative "次に4.2を実装します" -
+// the anti-stall continuation used to push the run straight past the
+// user's boundary. With work applied, the announcement IS the stop.
+test('V-27 scoped run stops at a declarative next-item ending', async () => {
+  const tmp = mkTmp('tsp-v27-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '4.1の実装が完了しました。\n' +
+      '// WRITE_FILE: f.js\nconsole.log("one")\n// END_WRITE_FILE\n' +
+      '次に4.2を実装します。',
+      'SHOULD_NOT_REACH',
+    ], reqs)
+    await sendChat(page, '4.1だけ実装して')
+    await page.waitForSelector('.file-edit-approval', { timeout: 30000 })
+    await page.click('.approve-button')
+    // The boundary stop ends the run - no continuation request is sent.
+    await page.waitForFunction(
+      () => document.body.textContent.includes("Stopped at"),
+      { timeout: 20000 })
+    assert.strictEqual(reqs.length, 1,
+      `a continuation request went out past the boundary:\n${reqs[1] ?? ''}`)
+    assert.ok(fs.readFileSync(path.join(proj, 'f.js'), 'utf8').includes('console.log("one")'),
+      'the applied write is missing on disk')
+  } finally { await app.close() }
+})
+
+// V-28 ("か。" permission question): Japanese models close polite
+// questions with 。 ("実装してもよろしいでしょうか。") - the boundary
+// check only looked for ?/？ and let the run steamroll a real stop.
+test('V-28 scoped run stops at a か。 question ending', async () => {
+  const tmp = mkTmp('tsp-v28-')
+  const proj = path.join(tmp, 'proj')
+  fs.mkdirSync(proj)
+  fs.writeFileSync(path.join(proj, 'f.js'), 'x\n')
+  const { app, page } = await launchApp({ profileDir: mkTmp('tsp-prof-') })
+  try {
+    await openProject(page, proj)
+    const reqs = []
+    await mockGemini(page, [
+      '実装方針を確認します。\n// READ_FILE: f.js\nこの方針で実装を進めてもよろしいでしょうか。',
+      'SHOULD_NOT_REACH',
+    ], reqs)
+    await sendChat(page, '4.1だけ実装して')
+    await page.waitForFunction(
+      () => document.body.textContent.includes("Stopped at"),
+      { timeout: 20000 })
+    assert.strictEqual(reqs.length, 1,
+      `a continuation request went out past the boundary:\n${reqs[1] ?? ''}`)
   } finally { await app.close() }
 })
 

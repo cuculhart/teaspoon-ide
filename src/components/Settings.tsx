@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { configService, ThemeMode, ContextMode, LlmProvider } from '../services/configService'
 import { ollamaService } from '../services/ollamaService'
+import { recommendedNumCtxForModel } from '../services/modelGuide'
 import { geminiService } from '../services/geminiService'
 import { providers } from '../services/providers'
 import { i18nService, useT } from '../services/i18nService'
@@ -723,6 +724,32 @@ const Settings: React.FC<SettingsProps> = ({ onClose, onApiKeySaved }) => {
                     />
                   )}
                 </div>
+                {(() => {
+                  // Recommended-context guide: only for known models, and
+                  // only when the current setting is below the
+                  // recommendation. Ollama's own default (empty field) is
+                  // 4096 here - well under agent-loop needs for models
+                  // that also burn context on a reasoning trace.
+                  const recommended = recommendedNumCtxForModel(ollamaModel)
+                  if (!recommended) return null
+                  const current = parseInt(ollamaNumCtx || '', 10)
+                  const effective = Number.isFinite(current) && current > 0 ? current : 4096
+                  if (effective >= recommended) return null
+                  return (
+                    <p className="setting-description">
+                      {t('This model is easier to drive with a larger context window ({n} recommended).')
+                        .replace('{n}', String(recommended))}
+                      {' '}
+                      <button
+                        type="button"
+                        className="ctx-guide-button"
+                        onClick={() => handleOllamaNumCtxChange(String(recommended))}
+                      >
+                        {t('Set to recommended value')}
+                      </button>
+                    </p>
+                  )
+                })()}
                 <div className="appearance-row">
                   <label htmlFor="ollama-num-thread">{t('CPU Threads')}</label>
                   <input

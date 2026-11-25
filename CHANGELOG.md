@@ -5,6 +5,100 @@ All notable changes to Teaspoon IDE are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.9.0] - 2026-11-25
+
+A large backport of the Local Edition's agent-hardening work plus new
+defenses observed on real runs. Highlights: plan-file driven mode,
+ask mode, syntax validation with rollback, and multi-layer guards for
+context exhaustion, scope creep, and false completion claims.
+
+### Added
+
+- **Ask mode**: an Agent/Ask switch in the chat input bar. In ask mode
+  the model's WRITE_FILE/EDIT_FILE/RUN_COMMAND/CLOSE_PROJECT commands
+  are blocked before approval - before they can touch the disk or the
+  shell - and a "Retry in code mode" button re-sends the last user
+  message in agent mode (backported from the Local Edition).
+- **Plan-file driven mode**: markdown plan files (todo.md, plan.md,
+  *-plan.md, *_plan.md) are now tracked. A compact `[PLAN]` digest of
+  open items is injected into every agent turn and names the first open
+  leaf item as the "Current step"; "- [x]" completions are audited
+  against verified file changes; and completing a phase asks the user
+  before the next one starts - including transitions between nested
+  sub-items, so a fine-grained WBS gates item by item. Plan items are
+  matched by their leading number, so a "- [x]" flip made in the same
+  edit as a text change (progress fields, priorities) is still
+  detected, and the plan file itself sits behind a re-read gate until
+  the model reads it in the run.
+- **Process approval for stuck work**: the same file failing its edit
+  repeatedly, or an unresolved edit the model cannot close out, now
+  asks the user to retry, skip the item, or stop the run instead of
+  looping; a skipped path is rejected for the rest of the run.
+- **Syntax validation with auto-rollback**: applied JS/TS writes and
+  edits are syntax-checked (transpile diagnostics, plus JSON.parse for
+  JSON files); a broken file is rolled back to its previous content and
+  the failure is reported to the model.
+- **Persistent checkpoints**: applied file changes are recorded per
+  project so a run's verified edits survive across sessions.
+- **Approval notes**: file-edit and shell-command approval dialogs now
+  show the model's prose explanation from that reply, so the "why" sits
+  next to the diff instead of hidden behind the modal.
+- **Recommended num_ctx guide** (Ollama): a known-model table
+  (e.g. gemma4 -> 16384) shows in Settings when the effective context
+  size is below the recommendation, with a one-click "Set to
+  recommended value"; a run started below the recommended value also
+  earns a once-per-session notice with a raise button, since the
+  Settings guide alone was easy to miss.
+- **Context-window defenses**: an Ollama reply cut by 'length' while
+  input+output is at ~95%+ of num_ctx is treated as window exhaustion,
+  not an output cap - the run stops with a "context window is full"
+  notice and a raise-num_ctx retry button (the old "ask for more"
+  continuation grew history into repeated truncation). A prompt
+  crossing ~80% of num_ctx gets a once-per-run nearly-full warning plus
+  feedback telling the model to wrap up; the overflow notice only
+  fired past 100%, which was too late to help.
+- **Undefined-callee warnings**: after a successful JS/TS write or
+  edit, calls to functions with no definition anywhere in the project
+  are flagged to the model - a common small-model pattern is claiming
+  a helper was implemented when nothing defines it.
+- **Scoped-run boundaries**: when the user bounds the work ("just 4.1",
+  "only X"), a reply that ends with a declarative "next I'll do Y"
+  after applied work is treated as the user's stop line instead of an
+  anti-stall continuation. Permission questions ending in a
+  sentence-final "ka." are also recognized - Japanese models often
+  close a question with a period rather than a question mark.
+- **SEARCH-less edit steering**: an EDIT_FILE block with no
+  SEARCH/REPLACE pair gets WRITE_FILE guidance in its first feedback
+  instead of burning retries on the same mistake.
+- **Failure/stagnation watchdogs**: repeated identical replies with no
+  on-disk progress warn and then abort the run; large READ results are
+  trimmed with a notice; a run that produced zero verified changes is
+  surfaced to the user.
+- Re-read gate and SEARCH-failure streaks: a file whose SEARCH block
+  keeps missing is held until the model re-reads it, instead of
+  retrying blind (backported from the Local Edition).
+
+### Changed
+
+- The agent prompt now documents plan files: checkbox items, one task
+  per line, "- [x]" only after the change is verified on disk.
+- New e2e coverage: 28 scenario tests run against a mock LLM endpoint,
+  including plan gating, ask mode, context exhaustion, and scope
+  boundaries.
+
+### Fixed
+
+- A phase-gate/sub-item gate could be bypassed entirely when the model
+  flipped "- [x]" and rewrote the item's own text in the same edit -
+  completion marks and the plan audit now match items by their leading
+  number as well as normalized text.
+- Declarative next-work endings ("next, I'll implement 4.2") inside a
+  user-scoped run were treated as stalls and force-continued straight
+  past the user's boundary; they now stop the run when the work was
+  applied.
+
 ## [1.8.1] - 2026-11-22
 
 ### Changed

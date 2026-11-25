@@ -3,6 +3,7 @@ const { watch: fsWatch, readFileSync, writeFileSync } = require('fs')
 const path = require('path')
 const { simpleGit } = require('simple-git')
 const { spawn } = require('child_process')
+const crypto = require('crypto')
 const pty = require('node-pty')
 const { ipcMain, dialog, nativeTheme, shell, BrowserWindow, app, safeStorage } = require('electron')
 const { langDir, t } = require('./i18n')
@@ -760,6 +761,53 @@ function setupIpcHandlers() {
       for (const name of names) {
         try { await fs.unlink(path.join(CHAT_HISTORY_DIR, name)) } catch { /* keep going */ }
       }
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  // AI-write checkpoints: pre-write snapshots persisted so the chat's
+  // rollback button keeps working after an app restart. One JSON file
+  // per project under userData/checkpoints, named by a hash of the
+  // project root - the renderer supplies the root path for hashing and
+  // permission checking only, never a filename.
+  const CHECKPOINT_DIR = path.join(app.getPath('userData'), 'checkpoints')
+  const checkpointFileFor = (rootPath) => {
+    const hash = crypto.createHash('sha256')
+      .update(normalizeFsPath(String(rootPath))).digest('hex').slice(0, 16)
+    return path.join(CHECKPOINT_DIR, `${hash}.json`)
+  }
+
+  ipcMain.handle('checkpoint-get', async (event, rootPath) => {
+    try {
+      if (!isWithinAllowedRoot(rootPath)) return deniedPath()
+      const raw = await fs.readFile(checkpointFileFor(rootPath), 'utf-8')
+      return { success: true, json: raw }
+    } catch (error) {
+      if (error.code === 'ENOENT') return { success: true, json: null }
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('checkpoint-put', async (event, rootPath, json) => {
+    try {
+      if (!isWithinAllowedRoot(rootPath)) return deniedPath()
+      if (typeof json !== 'string' || json.length > 24 * 1024 * 1024) {
+        return { success: false, error: t('Invalid payload') }
+      }
+      try {
+        const parsed = JSON.parse(json)
+        if (!parsed || !Array.isArray(parsed.batches)) return { success: false, error: t('Invalid payload') }
+      } catch {
+        return { success: false, error: t('Invalid payload') }
+      }
+      await fs.mkdir(CHECKPOINT_DIR, { recursive: true, mode: 0o700 })
+      // Crash-safe write: temp file + rename (same pattern as chat history)
+      const file = checkpointFileFor(rootPath)
+      const tmp = `${file}.tmp`
+      await fs.writeFile(tmp, json, 'utf-8')
+      await fs.rename(tmp, file)
       return { success: true }
     } catch (error) {
       return { success: false, error: error.message }

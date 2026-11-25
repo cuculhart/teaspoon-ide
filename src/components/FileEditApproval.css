@@ -43,6 +43,28 @@
   color: var(--text-tertiary);
 }
 
+.approval-model-note {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+
+.approval-model-note .note-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
+}
+
+.approval-model-note .note-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 .edits-list {
   flex: 1;
   overflow-y: auto;

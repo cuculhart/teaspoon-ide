@@ -19,6 +19,10 @@ export type ContextMode = 'tree' | 'full'
 // 'gemini' = Google Gemini API (or LiteLLM proxy). 'ollama' = local Ollama.
 export type LlmProvider = 'gemini' | 'ollama'
 
+// Chat input mode: 'agent' = full file/shell command set, 'ask' =
+// read-only inspection (WRITE/EDIT/RUN/CLOSE blocked in the agent loop).
+export type ChatMode = 'agent' | 'ask'
+
 // Ollama "think" field: boolean on/off, or an effort level for models
 // that support levels (gpt-oss, qwen3, ...).
 export type OllamaThink = boolean | 'low' | 'medium' | 'high'
@@ -320,6 +324,17 @@ class ConfigService {
 
   setChatFocus(on: boolean): void {
     localStorage.setItem('chat_focus', on ? '1' : '0')
+  }
+
+  // 'agent' (default) keeps the full tool set; 'ask' restricts the AI to
+  // read-only inspection commands - enforced in the agent loop, not just
+  // by prompt.
+  getChatMode(): ChatMode {
+    return localStorage.getItem('chat_mode') === 'ask' ? 'ask' : 'agent'
+  }
+
+  setChatMode(mode: ChatMode): void {
+    localStorage.setItem('chat_mode', mode)
   }
 
   // Conversation active when no project is open - restored on the next

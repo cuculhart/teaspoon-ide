@@ -296,6 +296,76 @@
   cursor: not-allowed;
 }
 
+.chat-input-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Mode switch (Agent/Ask): a segmented pill so the current mode is
+   visible at a glance - the selected side fills with the theme accent. */
+.chat-mode-switch {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.chat-mode-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 3px 12px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.chat-mode-btn + .chat-mode-btn {
+  border-left: 1px solid var(--border-color);
+}
+
+.chat-mode-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Both modes use the theme's accent (submit) color when selected -
+   the filled side of the pill shows the active mode. */
+.chat-mode-btn.active {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* One-click "retry in code mode" offered after ask mode blocked a
+   file/command request - switches the mode and resends the request. */
+.retry-code-mode-button {
+  display: inline-block;
+  margin-top: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.retry-code-mode-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.retry-code-mode-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .send-button {
   background: var(--accent);
   color: var(--on-accent);

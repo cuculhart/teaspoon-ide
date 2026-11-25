@@ -151,6 +151,20 @@
   gap: 10px;
 }
 
+.ctx-guide-button {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ctx-guide-button:hover {
+  background: var(--accent-hover);
+}
+
 .model-dropdown {
   background: var(--bg-active);
   border: 1px solid var(--border-strong);

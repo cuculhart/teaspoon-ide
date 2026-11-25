@@ -15,6 +15,9 @@ export interface FileEdit {
 
 interface FileEditApprovalProps {
   edits: FileEdit[]
+  // The model's prose from the turn that produced these edits - the
+  // modal hides the chat, so the stated intent is shown in the dialog.
+  note?: string | null
   onApprove: (edits: FileEdit[]) => void
   onReject: () => void
   onRejectOne: (edit: FileEdit) => void
@@ -23,7 +26,7 @@ interface FileEditApprovalProps {
   onCancel?: () => void
 }
 
-const FileEditApproval: React.FC<FileEditApprovalProps> = ({ edits, onApprove, onReject, onRejectOne, onCancel }) => {
+const FileEditApproval: React.FC<FileEditApprovalProps> = ({ edits, note, onApprove, onReject, onRejectOne, onCancel }) => {
   const t = useT()
   const [expandedEdits, setExpandedEdits] = useState<Set<number>>(new Set([0]))
   const [monacoTheme, setMonacoTheme] = useState<ResolvedTheme>(themeService.getResolvedTheme())
@@ -73,6 +76,13 @@ const FileEditApproval: React.FC<FileEditApprovalProps> = ({ edits, onApprove, o
           <h3>{t('File Edit Approval')}</h3>
           <p className="edit-count">{edits.length} {t('file(s) to edit')}</p>
         </div>
+
+        {note && (
+          <div className="approval-model-note">
+            <div className="note-label">{t("The model's explanation for this turn")}</div>
+            <div className="note-text">{note}</div>
+          </div>
+        )}
 
         <div className="edits-list">
           {edits.map((edit, index) => (

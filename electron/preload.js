@@ -42,6 +42,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   chatHistoryPut: (id, json) => ipcRenderer.invoke('chat-history-put', id, json),
   chatHistoryDelete: (id) => ipcRenderer.invoke('chat-history-delete', id),
   chatHistoryClear: () => ipcRenderer.invoke('chat-history-clear'),
+  // AI-write checkpoints (scoped to userData/checkpoints by the main process)
+  checkpointGet: (rootPath) => ipcRenderer.invoke('checkpoint-get', rootPath),
+  checkpointPut: (rootPath, json) => ipcRenderer.invoke('checkpoint-put', rootPath, json),
   searchFiles: (rootPath, pattern) => ipcRenderer.invoke('search-files', rootPath, pattern),
   findFiles: (rootPath, pattern, maxResults) => ipcRenderer.invoke('find-files', rootPath, pattern, maxResults),
   watchProject: (rootPath) => ipcRenderer.invoke('watch-project', rootPath),

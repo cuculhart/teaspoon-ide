@@ -5,6 +5,9 @@ import './CommandApproval.css'
 
 interface CommandApprovalProps {
   commands: string[]
+  // The model's prose from the turn that produced these commands - the
+  // modal hides the chat, so the stated intent is shown in the dialog.
+  note?: string | null
   onApprove: (commands: string[]) => void
   onReject: () => void
   onRejectOne: (command: string) => void
@@ -13,7 +16,7 @@ interface CommandApprovalProps {
   onCancel?: () => void
 }
 
-const CommandApproval: React.FC<CommandApprovalProps> = ({ commands, onApprove, onReject, onRejectOne, onCancel }) => {
+const CommandApproval: React.FC<CommandApprovalProps> = ({ commands, note, onApprove, onReject, onRejectOne, onCancel }) => {
   const t = useT()
   return (
     <div className="file-edit-approval">
@@ -24,6 +27,13 @@ const CommandApproval: React.FC<CommandApprovalProps> = ({ commands, onApprove, 
             {commands.length} {t('command(s) to run in the project root')}
           </p>
         </div>
+
+        {note && (
+          <div className="approval-model-note">
+            <div className="note-label">{t("The model's explanation for this turn")}</div>
+            <div className="note-text">{note}</div>
+          </div>
+        )}
 
         <div className="edits-list">
           {commands.map((command) => (
