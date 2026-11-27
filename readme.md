@@ -12,8 +12,6 @@ The name **Teaspoon IDE** reflects the design goal: getting real work done on a 
 
 The package and repository name is `teaspoon-ide`. The product/display name is **Teaspoon IDE**. (Formerly known as **Forger**.)
 
-<video src="https://github.com/user-attachments/assets/867c8bcc-93aa-4ee4-90ef-efde5ed735e1" controls width="100%"></video>
-
 Author: Cuculhart — Web Site: https://cuculhart.com
 
 ## Features
