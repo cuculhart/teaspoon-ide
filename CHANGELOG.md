@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-28
+
+Patch release fixing a race where the startup conversation restore
+could erase freshly pushed messages. Backported from Local Edition
+v1.4.0, where the bug was observed on a real run (backlog T34).
+
+### Fixed
+
+- **Mount-time conversation restore wiping a just-sent message.** The
+  startup restore resolves asynchronously (up to ~2s of project-open
+  wait plus the history read). If the user sent a message before it
+  resolved, the restore replaced the whole message list with the stored
+  conversation - erasing the user's message and any pushed notices,
+  including the once-per-session num_ctx recommendation (whose
+  shown-flag stayed set and could never refire). A send or
+  conversation pick now marks the mount as interacted, and a restore
+  that resolves afterwards is dropped.
+
 ## [1.9.0] - 2026-11-25
 
 A large backport of the Local Edition's agent-hardening work plus new

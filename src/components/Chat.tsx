@@ -1794,6 +1794,13 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
   // The "raise num_ctx?" hint shows once per app session, not per run -
   // repeating it on every send would train the user to ignore it.
   const ctxGuideShownRef = useRef(false)
+  // Set synchronously when the user interacts with this mount (send,
+  // conversation pick). The mount-time conversation restore resolves
+  // later (up to ~2s wait + history read); without this it would
+  // overwrite messages pushed in the meantime - including a first
+  // send's ctx-guide notice, while ctxGuideShownRef stays set and can
+  // never refire.
+  const userInteractedRef = useRef(false)
   const messagesRef = useRef<Message[]>([])
   const [convList, setConvList] = useState<ConversationMeta[]>([])
   const [convDeleteId, setConvDeleteId] = useState<string | null>(null)
@@ -1991,6 +1998,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
   // event so the chat is NOT remounted (unlike Explorer's open path).
   const handleSelectConversation = async (meta: ConversationMeta) => {
     if (isLoading || meta.id === convIdRef.current) return
+    userInteractedRef.current = true
     const conv = await chatHistoryService.getById(meta.id)
     if (!conv) return
     if (meta.projectPath) {
@@ -2218,7 +2226,9 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
         ? await chatHistoryService.getByProject(project.rootPath)
         : await chatHistoryService.getById(configService.getLastNoProjectConv())
       if (cancelled) return
-      if (conv) {
+      // A send that started before this restore resolved has already
+      // pushed messages - do not wipe them with the stored conversation.
+      if (conv && !userInteractedRef.current) {
         setConvId(conv.id)
         convCreatedAtRef.current = conv.createdAt
         convProjectPathRef.current = conv.projectPath
@@ -2387,6 +2397,7 @@ const Chat: React.FC<ChatProps> = ({ onOpenSettings, chatFocus, onToggleFocus })
   }
 
   const sendToAI = async (userMessage: Message, historyBase: Message[]) => {
+    userInteractedRef.current = true
     setIsLoading(true)
     setRunStatus(null)
 
